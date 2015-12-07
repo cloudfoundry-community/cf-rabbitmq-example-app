@@ -17,10 +17,10 @@ end
 
 get '/ping' do
   begin
-    c = Bunny.new(rabbitmq_url)
+  	verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
+    c = Bunny.new(rabbitmq_url, :verify_peer => verify_peer_value)
     c.start
     c.create_channel
-
     status 200
     body 'OK'
 
@@ -123,7 +123,8 @@ end
 def client
   unless $client
     begin
-      c = Bunny.new(rabbitmq_url)
+			verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
+			c = Bunny.new(rabbitmq_url, :verify_peer => verify_peer_value)
       c.start
       $client = c.create_channel
     rescue Exception
