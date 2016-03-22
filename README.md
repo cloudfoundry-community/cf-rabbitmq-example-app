@@ -58,6 +58,6 @@ message queue.  Example:
 
 Pulls a single message from the named message queue.  Example:
 
-    $ curl -X GET $APP/a-test-queue
+    $ curl -X GET $APP/queue/a-test-queue
     Hello
 
