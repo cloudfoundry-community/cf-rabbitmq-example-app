@@ -5,7 +5,7 @@ require 'cf-app-utils'
 DATA ||= {}
 
 before do
-  unless rabbitmq_url
+  unless rabbitmq_creds('uris')
     halt 500, %{You must bind a RabbitMQ service instance to this application.
 
 You can run the following commands to create an instance and bind to it:
@@ -18,12 +18,11 @@ end
 get '/ping' do
   begin
     verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
-    c = Bunny.new(rabbitmq_url, :verify_peer => verify_peer_value)
+    c = Bunny.new(:verify_peer => verify_peer_value, :addresses => rabbitmq_creds('hostnames'), :username => rabbitmq_creds('username'), :password => rabbitmq_creds('password'), :vhost => rabbitmq_creds('vhost'))
     c.start
     c.create_channel
     status 200
     body 'OK'
-
   rescue Exception => e
     halt 500, "ERR:#{e}"
   end
@@ -31,7 +30,7 @@ end
 
 get '/env' do
   status 200
-  body "rabbitmq_url: #{rabbitmq_url}\n"
+  body "rabbitmq_url: #{rabbitmq_creds('uris')}\n"
 end
 
 get '/queues' do
@@ -106,13 +105,13 @@ def mq(name)
   "test.mq.#{name}"
 end
 
-def rabbitmq_url
+def rabbitmq_creds(name)
   return nil unless ENV['VCAP_SERVICES']
 
   JSON.parse(ENV['VCAP_SERVICES'], :symbolize_names => true).values.map do |services|
     services.each do |s|
       begin
-        return s[:credentials][:uri]
+        return s[:credentials][name.to_sym]
       rescue Exception
       end
     end
@@ -120,14 +119,16 @@ def rabbitmq_url
   nil
 end
 
+
 def client
   unless $client
     begin
       verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
-      c = Bunny.new(rabbitmq_url, :verify_peer => verify_peer_value)
+      c = Bunny.new(:verify_peer => verify_peer_value, :addresses => rabbitmq_creds('hostnames'), :username => rabbitmq_creds('username'), :password => rabbitmq_creds('password'), :vhost => rabbitmq_creds('vhost'))
       c.start
       $client = c.create_channel
-    rescue Exception
+    rescue Exception => e
+      halt 500, "ERR:#{e}"
     end
   end
   $client
