@@ -14,11 +14,12 @@ with the Pivotal RabbitMQ service
 
 Example:
 
-    $ git clone git@github.com:starkandwayne/cf-rabbitmq-example-app.git
-    $ cd rabbitmq-example-app
+    $ git clone git@github.com:cloudfoundry-community/cf-rabbitmq-example-app.git
+    $ cd cf-rabbitmq-example-app
     $ cf push rabbitmq-example-app --no-start
     $ cf create-service p-rabbitmq development rabbitmq
     $ cf bind-service rabbitmq-example-app rabbitmq
+    $ cf start rabbitmq-example-app
 
 ### Endpoints
 
