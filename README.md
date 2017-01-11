@@ -28,7 +28,7 @@ Example:
 Verifies that the application is up and responding, and can
 connect to the RabbitMQ backend service.  Example:
 
-    $ export APP=rabbitmq-example-app.my-cloud-foundry.com
+    $ export APP=https://rabbitmq-example-app.my-cloud-foundry.com
     $ curl $APP/ping
     OK
 
