@@ -1,6 +1,6 @@
 ---
 applications:
-- name: rabbitmq-example-app
+- name: rabbitmq
   memory: 256M
-  instances: 1
+  instances: 2
   path: .
