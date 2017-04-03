@@ -21,6 +21,7 @@ get '/ping' do
     c = Bunny.new(:verify_peer => verify_peer_value, :addresses => rabbitmq_creds('hostnames'), :username => rabbitmq_creds('username'), :password => rabbitmq_creds('password'), :vhost => rabbitmq_creds('vhost'))
     c.start
     c.create_channel
+    c.close
     status 200
     body 'OK'
   rescue Exception => e
