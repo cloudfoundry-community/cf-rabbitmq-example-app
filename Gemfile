@@ -2,6 +2,7 @@ source 'https://rubygems.org'
 
 gem 'sinatra'
 gem 'bunny'
+gem 'rackup'
 
 gem 'cf-app-utils', '~>0.6' # git: 'http://github.com/cloudfoundry/cf-app-utils-ruby.git'
 
