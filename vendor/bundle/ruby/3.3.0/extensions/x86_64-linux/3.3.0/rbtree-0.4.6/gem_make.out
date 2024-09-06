@@ -1,0 +1,27 @@
+current directory: /home/wayneeseguin/w/cloudfoundry-community/cf-rabbitmq-example-app/vendor/bundle/ruby/3.3.0/gems/rbtree-0.4.6
+/home/wayneeseguin/.rvm/rubies/ruby-3.3.1/bin/ruby extconf.rb
+checking for ruby/version.h... yes
+checking for rb_exec_recursive() in ruby.h... yes
+checking for rb_exec_recursive_paired() in ruby.h... yes
+checking for rb_proc_lambda_p() in ruby.h... yes
+checking for rb_ary_resize() in ruby.h... yes
+checking for rb_obj_hide() in ruby.h... yes
+checking for rb_safe_level() in ruby.h... no
+checking for rb_cData() in ruby.h... no
+creating Makefile
+
+current directory: /home/wayneeseguin/w/cloudfoundry-community/cf-rabbitmq-example-app/vendor/bundle/ruby/3.3.0/gems/rbtree-0.4.6
+make DESTDIR\= sitearchdir\=./.gem.20240906-325025-99kmk6 sitelibdir\=./.gem.20240906-325025-99kmk6 clean
+
+current directory: /home/wayneeseguin/w/cloudfoundry-community/cf-rabbitmq-example-app/vendor/bundle/ruby/3.3.0/gems/rbtree-0.4.6
+make DESTDIR\= sitearchdir\=./.gem.20240906-325025-99kmk6 sitelibdir\=./.gem.20240906-325025-99kmk6
+compiling dict.c
+compiling rbtree.c
+linking shared-object rbtree.so
+
+current directory: /home/wayneeseguin/w/cloudfoundry-community/cf-rabbitmq-example-app/vendor/bundle/ruby/3.3.0/gems/rbtree-0.4.6
+make DESTDIR\= sitearchdir\=./.gem.20240906-325025-99kmk6 sitelibdir\=./.gem.20240906-325025-99kmk6 install
+/usr/bin/install -c -m 0755 rbtree.so ./.gem.20240906-325025-99kmk6
+
+current directory: /home/wayneeseguin/w/cloudfoundry-community/cf-rabbitmq-example-app/vendor/bundle/ruby/3.3.0/gems/rbtree-0.4.6
+make DESTDIR\= sitearchdir\=./.gem.20240906-325025-99kmk6 sitelibdir\=./.gem.20240906-325025-99kmk6 clean

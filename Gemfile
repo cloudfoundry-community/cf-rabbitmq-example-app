@@ -1,9 +1,9 @@
 source 'https://rubygems.org'
 
-gem 'cf-app-utils', git: 'http://github.com/cloudfoundry/cf-app-utils-ruby.git'
-
 gem 'sinatra'
 gem 'bunny'
+
+gem 'cf-app-utils', '~>0.6' # git: 'http://github.com/cloudfoundry/cf-app-utils-ruby.git'
 
 group :test do
   gem 'rack-test'
