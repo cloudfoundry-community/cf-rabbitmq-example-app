@@ -103,7 +103,7 @@ end
 #############################################
 
 def mq(name)
-  "test.mq.#{name}"
+  "#{name}"
 end
 
 def rabbitmq_creds(name)
