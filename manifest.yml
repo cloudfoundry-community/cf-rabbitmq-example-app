@@ -1,7 +1,8 @@
 ---
 applications:
-- name: rabbitmq
-  memory: 256M
+- name: rabbitmq-example-app
+  memory: 512M
+  disk_quota: 1024M
   instances: 1
-  stack: cflinuxfs4
+  buildpack: ruby_buildpack
   path: .
