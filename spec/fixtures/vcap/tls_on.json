@@ -1,0 +1,40 @@
+{
+  "rabbitmq": [
+    {
+      "label": "rabbitmq",
+      "name": "rmqsmall",
+      "plan": "standalone",
+      "tags": ["blacksmith", "dedicated", "rabbitmq"],
+      "credentials": {
+        "host": "10.7.16.17",
+        "hostname": "10.7.16.17",
+        "hostnames": ["10.7.16.17"],
+        "username": "app-user",
+        "password": "app-pass",
+        "vhost": "0de041e6-91ba-4f55-b50f-d575ce91e2a5",
+        "mgmt_port": 15671,
+        "rmq_port": 5671,
+        "uri": "amqps://app-user:app-pass@10.7.16.17:5671",
+        "uris": ["amqps://app-user:app-pass@10.7.16.17:5671"],
+        "protocols": {
+          "amqps": {
+            "username": "app-user",
+            "password": "app-pass",
+            "host": "10.7.16.17",
+            "port": 5671,
+            "vhost": "0de041e6-91ba-4f55-b50f-d575ce91e2a5",
+            "ssl": true
+          },
+          "management_tls": {
+            "username": "app-user",
+            "password": "app-pass",
+            "host": "10.7.16.17",
+            "port": 15671,
+            "path": "/api",
+            "ssl": true
+          }
+        }
+      }
+    }
+  ]
+}
