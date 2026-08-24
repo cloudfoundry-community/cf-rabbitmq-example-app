@@ -82,7 +82,8 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
     # broker.
     it 'subscribes, then flushes with a QoS-1 publish before disconnecting' do
       client = instance_double(::MQTT::Client, subscribe: nil, publish: nil)
-      allow(::MQTT::Client).to receive(:connect).and_yield(client)
+      allow(::MQTT::Client).to receive(:new).and_return(client)
+      allow(client).to receive(:connect).and_yield(client)
 
       code, body = described_class.new(endpoint).declare('some-queue')
 
@@ -117,5 +118,54 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
       expect { MQTT::Packet::Connect.new(client_id: id, clean_session: true).to_s }
         .not_to raise_error
     end
+  end
+end
+
+RSpec.describe RabbitMQ::Adapters::MQTT, 'over TLS' do
+  def tls_endpoint(verify_peer)
+    RabbitMQ::Endpoint.new(
+      protocol: 'mqtts', host: 'broker.example', port: 8883, tls: true,
+      username: 'demo-vhost:app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: verify_peer
+    )
+  end
+
+  let(:context) { OpenSSL::SSL::SSLContext.new }
+  let(:client) { instance_double(::MQTT::Client, ssl_context: context) }
+
+  before do
+    allow(::MQTT::Client).to receive(:new).and_return(client)
+    allow(client).to receive(:connect).and_yield(client)
+  end
+
+  # ruby-mqtt's own SSLContext is created with no verify_mode, so before
+  # this the adapter completed a TLS handshake against any certificate at
+  # all. Confirmed against a broker holding a certificate from a CA in no
+  # trust store: /mqtts/ping returned 200 OK.
+  it 'verifies the broker certificate chain by default' do
+    RabbitMQ::Adapters::MQTT.new(tls_endpoint(true)).ping
+
+    expect(context.verify_mode).to eq(OpenSSL::SSL::VERIFY_PEER)
+    expect(context.cert_store).not_to be_nil
+  end
+
+  it 'skips verification when the operator opted out' do
+    RabbitMQ::Adapters::MQTT.new(tls_endpoint(false)).ping
+
+    expect(context.verify_mode).to eq(OpenSSL::SSL::VERIFY_NONE)
+  end
+
+  # Touching ssl_context on a plaintext endpoint would build a context
+  # ruby-mqtt never uses; more importantly it would read as though the
+  # adapter thought it was securing something.
+  it 'leaves the ssl context alone for a plaintext endpoint' do
+    plain = RabbitMQ::Endpoint.new(
+      protocol: 'mqtt', host: 'broker.example', port: 1883, tls: false,
+      username: 'demo-vhost:app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: true
+    )
+    expect(client).not_to receive(:ssl_context)
+
+    RabbitMQ::Adapters::MQTT.new(plain).ping
   end
 end

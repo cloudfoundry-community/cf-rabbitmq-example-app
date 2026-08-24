@@ -1,6 +1,7 @@
 require 'stomp'
 require 'timeout'
 require_relative 'base'
+require_relative '../tls'
 
 module RabbitMQ
   module Adapters
@@ -102,6 +103,28 @@ module RabbitMQ
 
       private
 
+      # The stomp gem cannot verify a broker certificate at all here.
+      # Connection#open_ssl_socket sets "ctx.verify_mode =
+      # OpenSSL::SSL::VERIFY_NONE # Assume for now" and only raises it to
+      # VERIFY_PEER when Stomp::SSLParams carries :ts_files - and that
+      # branch guards each file with File::exists?, which no longer exists
+      # on the Ruby this app runs (3.3.11), so supplying a trust store
+      # raises NoMethodError before a socket is ever opened. 1.4.10 is the
+      # newest release, so there is no version to bump to.
+      #
+      # Left at that, /stomps/ping answered 200 OK against a broker whose
+      # certificate came from a CA in no trust store, and again against
+      # one issued to a completely different hostname. Verifying the
+      # endpoint ourselves first is what this app can honestly do: it
+      # catches the wrong CA, the expired certificate and the wrong name.
+      # It does NOT authenticate the connection the messages then travel
+      # over - that needs the gem fixed. See RabbitMQ::TLS.verify_endpoint.
+      def tls_failure_reason
+        return nil unless endpoint.verify_peer?
+
+        RabbitMQ::TLS.verify_endpoint(endpoint)
+      end
+
       # Stomp::Client.new returns as soon as the socket is up: with
       # reliable false the gem does not raise when the broker answers
       # CONNECT with an ERROR frame, and every write below is
@@ -114,6 +137,9 @@ module RabbitMQ
       # connection_frame.command == 'CONNECTED', a refused one leaves
       # 'ERROR' with the reason in headers['message'].
       def with_client
+        reason = tls_failure_reason
+        return [502, "ERR:TLS verification failed: #{reason}"] if reason
+
         client = ::Stomp::Client.new(connection_options)
         frame = client.connection_frame
         unless frame && frame.command == 'CONNECTED'
