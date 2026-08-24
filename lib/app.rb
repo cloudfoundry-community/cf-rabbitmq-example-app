@@ -54,7 +54,12 @@ helpers do
   def adapter(protocol)
     klass = RabbitMQ::Registry.adapter_for(protocol) ||
             halt(501, "NOT-SUPPORTED: #{protocol}")
-    klass.new(endpoint_for(protocol))
+    endpoint = endpoint_for(protocol)
+    if klass == RabbitMQ::Adapters::MQTT
+      klass.new(endpoint, strategy: selected_mqtt_strategy)
+    else
+      klass.new(endpoint)
+    end
   end
 
   def management
