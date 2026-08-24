@@ -1,6 +1,6 @@
 source 'https://rubygems.org'
 
-ruby '3.3.6'
+ruby '3.3.11'
 
 gem 'sinatra', '~> 4.0'
 gem 'rackup'
