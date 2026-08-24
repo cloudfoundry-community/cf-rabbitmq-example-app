@@ -94,7 +94,12 @@ Example: `GET /stomp/queues`, `PUT /mqtt/queue/foo`.
 | GET | `/js/stomp.umd.min.js` | vendored STOMP-over-WebSocket client |
 
 `/`, `/select` and `/select-mqtt` are the only routes that work with no
-RabbitMQ service bound; every other route returns `503` until one is.
+RabbitMQ service bound; every other route returns `500` with binding
+instructions until one is. That's a distinct case from the `503` a
+protocol-specific route can return when a service *is* bound but the
+requested protocol itself can't be resolved (see
+[Diagnostics](#diagnostics-protocols)) — `500` means "nothing is
+bound at all", `503` means "bound, but not this protocol".
 
 ## Selecting a protocol
 
@@ -186,10 +191,19 @@ Two things worth knowing when reading it:
 | GET | `/mgmt/queues` | every queue, with its current depth |
 | GET | `/mgmt/queue/:name` | one queue's detail |
 
-`/mgmt/*` is the documented short alias; the same three endpoints also
-exist at `/management/*` and `/management-tls/*` via the per-protocol
-route prefixes. Both forms are intentional and neither redirects to
-the other.
+`/mgmt/*` is the documented short alias, but only `ping` is truly
+equivalent between the two forms. `/management/ping` and
+`/management-tls/ping` (from the generic per-protocol routes) do the
+same reachability check as `/mgmt/ping`. The other two paths under
+`/management/*`/`/management-tls/*` are a different operation, not an
+alias: they come from the same generic bare-route handler every other
+protocol shares, so `GET /management/queues` returns plain-text queue
+names with no depth (`management.queue_names`, not `management.queues`),
+and `GET /management/queue/:name` returns `501 NOT-SUPPORTED` — the
+`Management` adapter doesn't implement `consume`, which is what that
+generic route calls. Use `/mgmt/*` for depth and per-queue detail;
+`/management/*` and `/management-tls/*` exist because every protocol
+gets the same five routes, not because they mirror `/mgmt/*`.
 
 Queue depth is what the `rabbitmq-autoscale` kit feature scales on,
 and nothing in the pre-consolidation example apps exposed it.
@@ -238,10 +252,17 @@ plugin guide for the exact parameter shape; tracked for inclusion in
 the kit walkthrough as
 [genesis-community/blacksmith-genesis-kit#85](https://github.com/genesis-community/blacksmith-genesis-kit/issues/85).
 
-Until a plugin is enabled, `/protocols` reports its protocols as
-unavailable (or `adapter: "none"`/`declare` failing with a
-missing-plugin error), rather than the app silently pretending they
-work.
+`/protocols` cannot detect whether a plugin is enabled — it only
+reports what the binding advertises versus what can be derived from a
+protocol's standard port, which is pure arithmetic with no connectivity
+or plugin check involved. A protocol whose plugin is disabled still
+shows up as `available: true, source: "derived"`. In practice a
+disabled plugin surfaces as a connection failure or timeout on that
+protocol's `ping` or `declare` — a raw `502`/`504`/`500`, not a
+structured "missing plugin" diagnostic. (The one exception is the
+consistent-hash demo, which does detect its own plugin explicitly and
+returns `501 NOT-SUPPORTED` — see
+[`/demo/consistent-hash`](#democonsistent-hash) above.)
 
 ## Derived endpoints
 
