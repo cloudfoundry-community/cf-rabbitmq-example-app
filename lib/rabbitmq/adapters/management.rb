@@ -47,9 +47,24 @@ module RabbitMQ
       def get(path)
         response = http.request(request_for(path))
         return nil if response.code == '404'
-        raise "management API returned #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+        raise ManagementError.new(response.code, reason_from(response)) unless response.is_a?(Net::HTTPSuccess)
 
+        parse(response)
+      end
+
+      # RabbitMQ reports failures as JSON with `error` and `reason` keys, but a
+      # proxy in front of the broker may return anything at all.
+      def reason_from(response)
+        parsed = JSON.parse(response.body)
+        [parsed['error'], parsed['reason']].compact.join(': ')
+      rescue JSON::ParserError, TypeError
+        response.body
+      end
+
+      def parse(response)
         JSON.parse(response.body)
+      rescue JSON::ParserError
+        raise ManagementError.new(response.code, "expected JSON, got #{response.body}")
       end
 
       def request_for(path)
