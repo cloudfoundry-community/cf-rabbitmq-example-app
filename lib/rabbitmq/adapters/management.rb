@@ -3,6 +3,7 @@ require 'openssl'
 require 'json'
 require 'uri'
 require_relative 'base'
+require_relative '../tls'
 
 module RabbitMQ
   module Adapters
@@ -78,6 +79,14 @@ module RabbitMQ
         Net::HTTP.new(endpoint.host, endpoint.port).tap do |client|
           client.use_ssl = endpoint.tls
           client.verify_mode = OpenSSL::SSL::VERIFY_NONE unless endpoint.verify_peer?
+          # Net::HTTP's implicit trust store is OpenSSL's DEFAULT_CERT_STORE,
+          # built once when openssl is required - so it reflects SSL_CERT_FILE
+          # as of process start and never again. Every other adapter here
+          # resolves its trust store per connection, and the difference is
+          # visible: a trust store set after boot silently applied to five
+          # protocols and not to this one. Ask for the store explicitly so
+          # all six answer to the same thing.
+          client.cert_store = RabbitMQ::TLS.cert_store if endpoint.verify_peer?
           client.open_timeout = 5
           client.read_timeout = 10
         end
