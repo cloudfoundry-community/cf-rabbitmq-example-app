@@ -70,15 +70,17 @@ module RabbitMQ
     # further down (e.g. a precondition failure on a queue bind) are real
     # faults, not a missing plugin, and should not be misreported as one.
     #
-    # Reply-code 503 (COMMAND_INVALID), which is what RabbitMQ uses for an
-    # unrecognised exchange type, is classified as a hard error by AMQP
-    # 0-9-1 - a connection-level close, not a channel-level one - and
-    # Bunny maps it to Bunny::CommandInvalid < Bunny::ConnectionLevelException
-    # (bunny/session.rb#instantiate_connection_level_exception), a sibling
-    # of Bunny::ChannelLevelException, not a subclass of it. Some other
-    # broker could plausibly signal this as a channel-level close instead,
-    # and this path cannot be exercised without a live instance (see Task
-    # 13), so both families are caught here.
+    # RabbitMQ answers an unrecognised exchange type with a CHANNEL-level
+    # 406 PRECONDITION_FAILED: the channel closes, the connection stays
+    # open. Measured against 3.13.7 in spec/integration/exchange_type_spec.rb,
+    # which asserts exactly that (Bunny::PreconditionFailed, and not a
+    # Bunny::ConnectionLevelException).
+    #
+    # A connection-level 503 COMMAND_INVALID is the other plausible answer
+    # - AMQP 0-9-1 classifies 503 as a hard error, and Bunny maps it to
+    # Bunny::CommandInvalid < Bunny::ConnectionLevelException, a sibling of
+    # Bunny::ChannelLevelException rather than a subclass. No broker tested
+    # here sends it, but another might, so both families are caught.
     def declare_exchange(channel)
       channel.exchange(EXCHANGE_NAME, type: 'x-consistent-hash', durable: false)
     rescue Bunny::ChannelLevelException, Bunny::ConnectionLevelException

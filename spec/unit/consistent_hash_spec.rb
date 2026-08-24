@@ -114,15 +114,19 @@ RSpec.describe RabbitMQ::ConsistentHash do
       expect(connection).to have_received(:close).once
     end
 
-    # AMQP 0-9-1 classifies reply-code 503 (COMMAND_INVALID, RabbitMQ's
-    # error for an unrecognised exchange type) as a hard error - a
-    # connection-level close - and Bunny maps it to
-    # Bunny::CommandInvalid < Bunny::ConnectionLevelException, a sibling
-    # of Bunny::ChannelLevelException, not a subclass of it (see
+    # What RabbitMQ actually sends for an unrecognised exchange type is a
+    # CHANNEL-level 406 PRECONDITION_FAILED - measured against 3.13.7 in
+    # spec/integration/exchange_type_spec.rb, which asserts the channel
+    # closes while the connection stays open.
+    #
+    # A connection-level 503 COMMAND_INVALID is the other plausible answer:
+    # AMQP 0-9-1 classifies 503 as a hard error and Bunny maps it to
+    # Bunny::CommandInvalid < Bunny::ConnectionLevelException, a sibling of
+    # Bunny::ChannelLevelException rather than a subclass (see
     # session.rb#instantiate_connection_level_exception vs.
-    # channel.rb#instantiate_channel_level_exception). #run must
-    # translate either family into PluginMissing, since which one a given
-    # broker actually sends cannot be confirmed without a live instance.
+    # channel.rb#instantiate_channel_level_exception). #run translates
+    # either family into PluginMissing so a broker that chooses the other
+    # one is still handled.
     {
       'a channel-level close' => -> { Bunny::ChannelLevelException.new('COMMAND_INVALID - unknown exchange type', nil, nil) },
       'a connection-level close (Bunny::CommandInvalid)' => -> { Bunny::CommandInvalid.new('COMMAND_INVALID - unknown exchange type', nil, nil) }
