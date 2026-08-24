@@ -44,9 +44,24 @@ module RabbitMQ
         with_client { |_client| [200, 'OK'] }
       end
 
+      # The STOMP plugin has no "declare" verb - a queue comes into being
+      # when something SUBSCRIBEs to it. That makes SUBSCRIBE the only way
+      # to create one, but a plain subscription defaults to ack mode
+      # "auto", and the consumer it registers is not torn down the instant
+      # this method returns: close/unsubscribe are not synchronous, so the
+      # broker can still consider it live for a few milliseconds afterwards.
+      # A message published into that window was delivered to this
+      # throwaway subscriber and auto-acked away - measured as the cause of
+      # an intermittent 204 from #consume, roughly 30% of runs under load.
+      #
+      # ack "client" closes the hole: nothing is ever acked here, so
+      # anything delivered into the window stays unacknowledged and the
+      # broker requeues it when this connection goes away.
+      DECLARE_HEADERS = { 'ack' => 'client' }.freeze
+
       def declare(name)
         with_client do |client|
-          client.subscribe(destination(name)) { |_msg| nil }
+          client.subscribe(destination(name), DECLARE_HEADERS) { |_msg| nil }
           client.unsubscribe(destination(name))
           [201, 'SUCCESS']
         end
