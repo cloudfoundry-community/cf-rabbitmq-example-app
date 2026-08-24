@@ -157,6 +157,7 @@ require 'routes/legacy'
 require 'routes/protocol'
 require 'routes/management'
 require 'routes/diagnostics'
+require 'routes/demo'
 require 'routes/index'
 
 error RabbitMQ::Adapters::QueueNotFound do

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Web-MQTT demo</title>
+    <script src="/js/mqtt.min.js"></script>
+  </head>
+  <body>
+    <h1>Web-MQTT demo</h1>
+    <p>Publishes and consumes over the RabbitMQ web-mqtt listener, using mqtt.js in this
+      browser - no Ruby client speaks MQTT over WebSocket.</p>
+    <label>Password <input id="password" type="password"></label>
+    <label>Topic <input id="topic" value="demo-queue"></label>
+    <label>Message <input id="message" value="hello"></label>
+    <button id="send">Publish</button>
+    <pre id="log"></pre>
+    <script>
+      const log = (line) => { document.getElementById('log').textContent += line + '\n'; };
+
+      fetch('/demo/config.json').then((r) => r.json()).then((config) => {
+        const target = config.web_mqtt_tls || config.web_mqtt;
+        if (!target) { log('web-mqtt is not available on this binding'); return; }
+        log('endpoint: ' + target.url);
+
+        document.getElementById('send').addEventListener('click', () => {
+          const client = mqtt.connect(target.url, {
+            username: target.username,
+            password: document.getElementById('password').value
+          });
+          const topic = document.getElementById('topic').value;
+          client.on('connect', () => {
+            log('connected');
+            client.subscribe(topic, () => {
+              client.publish(topic, document.getElementById('message').value);
+            });
+          });
+          client.on('message', (t, payload) => log('received on ' + t + ': ' + payload.toString()));
+          client.on('error', (err) => log('error: ' + err.message));
+        });
+      }).catch((err) => log('config fetch failed: ' + err.message));
+    </script>
+  </body>
+</html>

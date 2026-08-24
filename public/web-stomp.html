@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Web-STOMP demo</title>
+    <script src="/js/stomp.umd.min.js"></script>
+  </head>
+  <body>
+    <h1>Web-STOMP demo</h1>
+    <p>Publishes and consumes over the RabbitMQ web-stomp listener, using stompjs in this
+      browser - no Ruby client speaks STOMP over WebSocket.</p>
+    <label>Password <input id="password" type="password"></label>
+    <label>Queue <input id="queue" value="demo-queue"></label>
+    <label>Message <input id="message" value="hello"></label>
+    <button id="send">Publish</button>
+    <pre id="log"></pre>
+    <script>
+      const log = (line) => { document.getElementById('log').textContent += line + '\n'; };
+
+      fetch('/demo/config.json').then((r) => r.json()).then((config) => {
+        const target = config.web_stomp_tls || config.web_stomp;
+        if (!target) { log('web-stomp is not available on this binding'); return; }
+        log('endpoint: ' + target.url);
+
+        document.getElementById('send').addEventListener('click', () => {
+          const destination = '/queue/' + document.getElementById('queue').value;
+          const client = new StompJs.Client({
+            brokerURL: target.url,
+            connectHeaders: {
+              login: target.username,
+              passcode: document.getElementById('password').value,
+              host: target.vhost
+            }
+          });
+
+          client.onConnect = () => {
+            log('connected');
+            client.subscribe(destination, (msg) => log('received: ' + msg.body));
+            client.publish({
+              destination: destination,
+              body: document.getElementById('message').value
+            });
+          };
+          client.onStompError = (frame) => log('error: ' + frame.headers.message);
+          client.activate();
+        });
+      }).catch((err) => log('config fetch failed: ' + err.message));
+    </script>
+  </body>
+</html>
