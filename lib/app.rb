@@ -1,144 +1,116 @@
 require 'sinatra'
-require 'bunny'
+require 'json'
 
-DATA ||= {}
+# Custom error blocks below only run when Sinatra is not showing (or
+# re-raising) exceptions itself. Left at their defaults, :test env sets
+# raise_errors true and a bare "development" default (no RACK_ENV/APP_ENV
+# at all - the case for a plain local run) sets show_exceptions true;
+# either suppresses every 'error' block below, and show_exceptions hands
+# the caller a full source/stack-trace page instead of the documented
+# "ERR:..." response - a public information disclosure. Pin both off so
+# the contract holds regardless of how the process was started.
+set :raise_errors, false
+set :show_exceptions, false
+
+$LOAD_PATH.unshift(File.expand_path('..', __dir__)) unless $LOAD_PATH.include?(File.expand_path('..', __dir__))
+
+require 'rabbitmq/binding'
+require 'rabbitmq/resolver'
+require 'rabbitmq/registry'
+
+BIND_INSTRUCTIONS = <<~TEXT.freeze
+  You must bind a RabbitMQ service instance to this application.
+
+  You can run the following commands to create an instance and bind to it:
+
+    $ cf create-service rabbitmq standalone rabbitmq-instance
+    $ cf bind-service <app-name> rabbitmq-instance
+TEXT
+
+helpers do
+  SELECTION_COOKIE = 'rmq_protocol'
+  MQTT_COOKIE = 'rmq_mqtt'
+  MQTT_STRATEGIES = %w[serialized per-queue per-request].freeze
+
+  # Sinatra::Base#call dups self before delegating to an instance's #call!,
+  # so each request gets its own instance - memoizing on an instance
+  # variable here is memoizing per-request, not across requests. Without
+  # it, service_binding and resolver each re-parse VCAP_SERVICES on every
+  # call, and a single request can call them several times.
+  def service_binding
+    @service_binding ||= RabbitMQ::Binding.from_env
+  end
+
+  def resolver
+    @resolver ||= RabbitMQ::Resolver.new(service_binding)
+  end
+
+  def endpoint_for(protocol)
+    resolver.resolve(protocol) ||
+      halt(503, "UNAVAILABLE: #{resolver.unavailable_reason(protocol)}")
+  end
+
+  def adapter(protocol)
+    klass = RabbitMQ::Registry.adapter_for(protocol) ||
+            halt(501, "NOT-SUPPORTED: #{protocol}")
+    klass.new(endpoint_for(protocol))
+  end
+
+  def management
+    RabbitMQ::Adapters::Management.new(endpoint_for(management_protocol))
+  end
+
+  def management_protocol
+    resolver.resolve('management') ? 'management' : 'management_tls'
+  end
+
+  # Adapters return [status, body]; routes just relay it.
+  def relay(result)
+    code, body_text = result
+    status code
+    body body_text
+  end
+
+  # Bare routes default to AMQP but are remappable by explicit selection:
+  # a one-request query param, else the cookie the index page sets, else
+  # amqp. Anything unrecognised or unresolvable falls back rather than
+  # erroring - the selector is a convenience, not a gate.
+  def selected_protocol
+    candidate = params['protocol'] || request.cookies[SELECTION_COOKIE]
+    return fallback_protocol unless candidate
+    return fallback_protocol unless RabbitMQ::Resolver::PROTOCOLS.include?(candidate)
+    return fallback_protocol unless resolver.resolve(candidate)
+
+    candidate
+  end
+
+  def fallback_protocol
+    resolver.resolve('amqp') ? 'amqp' : 'amqps'
+  end
+
+  # Same resolution order as the protocol selection, with an env default so
+  # an operator can set the deployment-wide behaviour without a cookie.
+  def selected_mqtt_strategy
+    candidate = params['mqtt'] || request.cookies[MQTT_COOKIE] || ENV['MQTT_CONCURRENCY']
+    MQTT_STRATEGIES.include?(candidate) ? candidate : 'serialized'
+  end
+end
 
 before do
-  unless rabbitmq_creds('uris')
-    halt 500, %{You must bind a RabbitMQ service instance to this application.
-
-You can run the following commands to create an instance and bind to it:
-
-  $ cf create-service p-rabbitmq development rabbitmq-instance
-  $ cf bind-service <app-name> rabbitmq-instance}
-  end
+  halt 500, BIND_INSTRUCTIONS unless service_binding.bound?
 end
 
-get '/ping' do
-  begin
-    verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
-    c = Bunny.new(:verify_peer => verify_peer_value, :addresses => rabbitmq_creds('hostnames'), :username => rabbitmq_creds('username'), :password => rabbitmq_creds('password'), :vhost => rabbitmq_creds('vhost'))
-    c.start
-    c.create_channel
-    c.close
-    status 200
-    body 'OK'
-  rescue Exception => e
-    halt 500, "ERR:#{e}"
-  end
+require 'routes/legacy'
+
+error RabbitMQ::Adapters::QueueNotFound do
+  halt 404, 'NO-SUCH-QUEUE'
 end
 
-get '/env' do
-  status 200
-  body "rabbitmq_url: #{rabbitmq_creds('uris')}\n"
-end
-
-get '/queues' do
-  status 200
-  body DATA.keys.map { |q| "#{q}\n" }.join
-end
-
-post '/queues' do
-  unless params[:name]
-    halt 400, 'NO-NAME'
-  end
-
-  q = mq(params[:name])
-  if DATA.has_key?(q)
-    halt 304, 'EXISTS'
-  end
-
-  DATA[q] = []
-  queue(q).subscribe(
-    :manual_ack  => true,
-    :timeout     => 10,
-    :message_max => 1
-  ) do |delivery, props, payload|
-    DATA[q].push payload
-  end
-
-  status 201
-  body 'SUCCESS'
-end
-
-put '/queue/:name' do
-  q = mq(params[:name])
-
-  if params[:data]
-    if !DATA.has_key?(q)
-      status 404
-      body 'NO-SUCH-QUEUE'
-
-    else
-      exchange.publish(params[:data],
-        :content_type => 'text/plain',
-        :key => mq(params[:name]))
-
-      status 201
-      body 'SUCCESS'
-    end
-  else
-    status 400
-    body 'NO-DATA'
-  end
-end
-
-get '/queue/:name' do
-  q = mq(params[:name])
-
-  halt 404, 'NO-SUCH-QUEUE' unless DATA.has_key?(q)
-  halt 204                      if DATA[q].empty?
-
-  status 200
-  lst = DATA[q]
-  DATA[q] = []
-  body lst.map { |m| "#{m}\n" }.join
+error RabbitMQ::Adapters::ManagementError do
+  err = env['sinatra.error']
+  halt 502, "ERR:management API returned #{err.status}: #{err.detail}"
 end
 
 error do
-  halt 500, "ERR:#{env['sinatra.error']}"
-end
-
-#############################################
-
-def mq(name)
-  "#{name}"
-end
-
-def rabbitmq_creds(name)
-  return nil unless ENV['VCAP_SERVICES']
-
-  JSON.parse(ENV['VCAP_SERVICES'], :symbolize_names => true).values.map do |services|
-    services.each do |s|
-      begin
-        return s[:credentials][name.to_sym]
-      rescue Exception
-      end
-    end
-  end
-  nil
-end
-
-
-def client
-  unless $client
-    begin
-      verify_peer_value = (ENV["RABBITMQ_SKIP_SSL"] != "1")
-      c = Bunny.new(:verify_peer => verify_peer_value, :addresses => rabbitmq_creds('hostnames'), :username => rabbitmq_creds('username'), :password => rabbitmq_creds('password'), :vhost => rabbitmq_creds('vhost'))
-      c.start
-      $client = c.create_channel
-    rescue Exception => e
-      halt 500, "ERR:#{e}"
-    end
-  end
-  $client
-end
-
-def queue(name)
-  $queues ||= {}
-  $queues[name] ||= client.queue(name)
-end
-
-def exchange
-  @exchange ||= client.exchange('')
+  halt 500, "ERR:#{env['sinatra.error'].message}"
 end
