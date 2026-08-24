@@ -333,10 +333,29 @@ common between the two stacks.
 (`docker-compose.test.yml`) — AMQP, management, MQTT, STOMP, Web-MQTT,
 Web-STOMP, and the consistent-hash exchange are all exercised there.
 
-**Not yet done:** this app has **not** been verified against a live
-Blacksmith-provisioned RabbitMQ instance. The current
-`blacksmith-genesis-kit` RabbitMQ forge pin is `rabbitmq-forge`
-**1.2.5**; behaviour against that forge — including whether its
-advertised-protocol set matches what's assumed above, and how
-`/protocols`'s derivation looks against a real binding — is expected
-but unconfirmed.
+**Live verification:** confirmed against a Blacksmith-provisioned
+instance (`rabbitmq-forge` 1.5.1, RabbitMQ 4.2.8) on a Cloud Foundry
+foundation, `cflinuxfs5`, bound with `cf bind-service`:
+
+- `/protocols` against the real binding reports `amqp` and `management`
+  as **advertised** and `mqtt`, `mqtts`, `stomp`, `stomps`, `web_mqtt`,
+  `web_mqtt_tls`, `web_stomp`, `management_tls` as **derived**, with
+  `amqps` and `web_stomp_tls` unavailable — matching what this README
+  describes.
+- Round-tripped a message over **AMQP**, **STOMP** and **MQTT**: declare
+  `201`, publish `201`, consume `200` with the body, `204` once drained.
+- `/mgmt/queues` returned queue depths, including the MQTT plugin's own
+  `mqtt-subscription-*` queue — the whole-vhost listing described above.
+- `/demo/consistent-hash` distributed 12 messages across 3 queues.
+- No credential appeared in any response body.
+
+**Still not covered:** TLS. The verified instance ran with
+`RabbitMQ TLS: Disabled`, so `amqps`, `mqtts`, `stomps` and the `*_tls`
+protocols remain exercised only by unit tests. Browser execution of the
+two demo pages is also unverified — CI proves the vendored JS is served,
+not that it runs.
+
+**Operator note:** application security groups must allow egress from
+the app to the service network on the protocol ports. A default CF
+install permits only DNS and 80/443, which makes every protocol fail
+with a connection error despite a correct binding.
