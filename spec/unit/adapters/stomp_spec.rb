@@ -47,6 +47,30 @@ RSpec.describe RabbitMQ::Adapters::Stomp do
     expect(opts[:start_timeout]).to be > 0
   end
 
+  describe '#declare' do
+    # The STOMP plugin creates a queue on SUBSCRIBE, so declare has to
+    # subscribe - but that registers a real consumer, and the broker does
+    # not tear it down synchronously when the connection closes. Under
+    # ack "auto" (the gem's default) a message published into that window
+    # was delivered to this throwaway subscriber and acked away, losing
+    # it: measured at ~30% of integration runs before the fix. ack
+    # "client" with no ack ever sent means the broker requeues instead.
+    #
+    # This asserts the header explicitly rather than the absence of the
+    # symptom, because the symptom is a broker-timing race that no unit
+    # test can provoke.
+    it 'subscribes with ack "client" so a raced message is requeued, not eaten' do
+      client = instance_double(Stomp::Client, subscribe: nil, unsubscribe: nil, close: nil)
+      allow(Stomp::Client).to receive(:new).and_return(client)
+
+      status, = described_class.new(endpoint).declare('alpha')
+
+      expect(status).to eq(201)
+      expect(client).to have_received(:subscribe)
+        .with('/queue/alpha', hash_including('ack' => 'client'))
+    end
+  end
+
   describe '#consume' do
     it 'closes the client and unsubscribes even when the read times out' do
       client = instance_double(Stomp::Client, subscribe: nil, unsubscribe: nil, close: nil)
