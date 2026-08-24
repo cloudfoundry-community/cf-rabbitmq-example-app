@@ -33,16 +33,28 @@ $ curl $APP/protocols
 
 ## Bare routes
 
-These are unchanged from the app's pre-consolidation versions and keep
-their exact contract: method, path, request format, response format,
-and status codes. They act on whichever protocol is currently
+These keep their pre-consolidation contract: same method, path, request
+params and status codes. They act on whichever protocol is currently
 [selected](#selecting-a-protocol) (AMQP by default).
+
+Four things behind them did change, deliberately:
+
+- **`/env` no longer prints credentials.** It used to echo the raw `uris`
+  array, passwords included; it now returns only `rabbitmq_url:
+  amqp://host:port`.
+- **`/queues` lists the whole vhost**, read from the management API,
+  rather than only queues this app declared. Queues created by anything
+  else — the MQTT plugin's per-subscription queues especially — appear
+  too.
+- **`GET /queue/:name` returns one message**, not every buffered message.
+- **`/queues` and `POST /queues` now require the `rabbitmq_management`
+  plugin**, since both consult the management API.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/ping` | connectivity check |
 | GET | `/env` | the resolved `rabbitmq_url` (no credentials) |
-| GET | `/queues` | list queues declared so far |
+| GET | `/queues` | list every queue in the vhost |
 | POST | `/queues` | declare a queue (`name` param) |
 | PUT | `/queue/:name` | publish a message (`data` param) |
 | GET | `/queue/:name` | consume one message |
@@ -281,19 +293,21 @@ derivation is what makes them reachable at all.
 
 ## `instances: 1`
 
-The manifest deploys a single instance deliberately. MQTT and STOMP
-each keep their subscription state on the live TCP connection to one
-broker session — `declare` (subscribe) and `consume` (read) have to
-land on an app instance that can still see that same session. With
-more than one instance, a `declare` and a later `consume` for the same
-queue can land on different instances behind the CF router with no
-shared state between them, and the consume would see nothing. (This is
-also why MQTT's `serialized` strategy uses a mutex scoped to a single
-process — see [Selecting a protocol](#selecting-a-protocol).) AMQP,
-STOMP-over-plain-TCP requests that stay within one connection, and the
-stateless management/diagnostic routes don't have this restriction,
-but the manifest doesn't split instance counts per route, so it stays
-at `1` for the whole app.
+The manifest deploys a single instance deliberately, because of MQTT.
+An MQTT client is identified by its `client_id`, which this app derives
+from `CF_INSTANCE_INDEX` so that two instances cannot collide on the
+broker. A `declare` (subscribe) and a later `consume` for the same
+queue therefore have to land on the same instance; behind the CF router
+with more than one instance they may not, and the consume would see
+nothing. (This is also why MQTT's `serialized` strategy uses a mutex
+scoped to a single process — see
+[Selecting a protocol](#selecting-a-protocol).)
+
+Nothing else here needs it. STOMP opens and closes a connection per
+request and the queue it declares lives in the broker, so any instance
+can consume it; AMQP and the management and diagnostic routes are
+stateless too. The manifest cannot set instance counts per route, so
+the whole app stays at `1`.
 
 ## Migrating from the MQTT/STOMP example apps
 
