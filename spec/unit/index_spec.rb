@@ -47,13 +47,13 @@ RSpec.describe 'root index' do
 
   it 'does not offer protocols that have no registered adapter' do
     get '/'
-    expect(last_response.body).not_to match(/name="protocol"[^>]*value="stomp"/)
     expect(last_response.body).not_to match(/name="protocol"[^>]*value="web_mqtt"/)
   end
 
-  it 'offers mqtt now that it resolves and has a registered adapter' do
+  it 'offers mqtt and stomp now that they resolve and have a registered adapter' do
     get '/'
     expect(last_response.body).to match(/name="protocol"[^>]*value="mqtt"/)
+    expect(last_response.body).to match(/name="protocol"[^>]*value="stomp"/)
   end
 
   it 'does offer protocols that resolve and have an adapter' do

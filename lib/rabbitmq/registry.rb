@@ -1,6 +1,7 @@
 require_relative 'adapters/amqp'
 require_relative 'adapters/management'
 require_relative 'adapters/mqtt'
+require_relative 'adapters/stomp'
 
 module RabbitMQ
   module Registry
@@ -10,7 +11,9 @@ module RabbitMQ
       'management' => Adapters::Management,
       'management_tls' => Adapters::Management,
       'mqtt' => Adapters::MQTT,
-      'mqtts' => Adapters::MQTT
+      'mqtts' => Adapters::MQTT,
+      'stomp' => Adapters::Stomp,
+      'stomps' => Adapters::Stomp
     }.freeze
 
     def self.adapter_for(name)
