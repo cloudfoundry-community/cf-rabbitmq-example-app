@@ -48,10 +48,22 @@ RSpec.describe 'root index' do
   it 'does not offer a protocol that resolves but has no registered adapter' do
     # Every protocol in Resolver::PROTOCOLS now has a registered adapter,
     # so the gate (`available && adapter` in views/index.erb) is exercised
-    # here via a stub rather than a real gap in the registry.
+    # here via a stub rather than a real gap in the registry. protocol_report
+    # calls adapter_for for every protocol, so a with()-constrained stub
+    # with no default raises on the others - and that MockExpectationError
+    # (a bare Exception, not StandardError) gets routed to the app's own
+    # catch-all 500 by Sinatra's dispatch!, which the "not_to match" below
+    # would pass against just as happily as a real, correctly-gated page.
+    # Assert the 200 explicitly so an error page can never pass silently,
+    # and pair the negative with positives so a filter that excluded
+    # everything can't pass vacuously either.
+    allow(RabbitMQ::Registry).to receive(:adapter_for).and_call_original
     allow(RabbitMQ::Registry).to receive(:adapter_for).with('mqtt').and_return(nil)
     get '/'
+    expect(last_response.status).to eq(200)
     expect(last_response.body).not_to match(/name="protocol"[^>]*value="mqtt"/)
+    expect(last_response.body).to match(/name="protocol"[^>]*value="stomp"/)
+    expect(last_response.body).to match(/name="protocol"[^>]*value="amqp"/)
   end
 
   it 'offers mqtt, stomp and web_mqtt now that they resolve and have a registered adapter' do
