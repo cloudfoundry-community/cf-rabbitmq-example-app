@@ -110,7 +110,8 @@ module RabbitMQ
       # branch guards each file with File::exists?, which no longer exists
       # on the Ruby this app runs (3.3.11), so supplying a trust store
       # raises NoMethodError before a socket is ever opened. 1.4.10 is the
-      # newest release, so there is no version to bump to.
+      # newest release, so there is no version to bump to - reported, with
+      # a one-word fix, as stompgem/stomp#176.
       #
       # Left at that, /stomps/ping answered 200 OK against a broker whose
       # certificate came from a CA in no trust store, and again against
