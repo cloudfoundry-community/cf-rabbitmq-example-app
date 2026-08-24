@@ -1,10 +1,12 @@
 # Read-only. Queue depth here is what the rabbitmq-autoscale kit feature
 # scales on, and nothing in the previous example apps exposed it.
 #
-# /mgmt/* is the documented short alias; /management/* also exists from
-# the protocol-prefixed loop in lib/routes/protocol.rb. Both are
-# intentional - see the design notes on issue #96 - and neither redirects
-# to the other.
+# These three are NOT aliases of /management/*, which comes from the
+# generic protocol-prefixed loop and answers differently: /management/queues
+# returns plain-text names with no depth, and GET /management/queue/:name
+# is 501, since the management adapter has no consume. Both surfaces are
+# intentional and neither redirects to the other; the README documents the
+# divergence in full.
 get '/mgmt/ping' do
   content_type :json
   status 200
