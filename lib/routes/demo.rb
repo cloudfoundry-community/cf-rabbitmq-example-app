@@ -57,3 +57,36 @@ get '/demo/config.json' do
   status 200
   body JSON.pretty_generate(report)
 end
+
+require 'rabbitmq/consistent_hash'
+
+# x-consistent-hash is an AMQP concept, so this demo deliberately calls
+# fallback_protocol rather than selected_protocol - the one place in the
+# app where a viewer's protocol selection (query param or cookie) is
+# intentionally ignored rather than honoured. Selecting stomp on the
+# index page, for instance, must not steer this route onto anything
+# other than AMQP.
+post '/demo/consistent-hash' do
+  queues = (params[:queues] || 3).to_i
+  messages = (params[:messages] || 100).to_i
+  halt 400, 'BAD-QUEUES' unless queues.between?(2, 20)
+  halt 400, 'BAD-MESSAGES' unless messages.between?(1, 10_000)
+
+  demo = RabbitMQ::ConsistentHash.new(endpoint_for(fallback_protocol), management)
+  result = demo.run(queues: queues, messages: messages)
+  content_type :json
+  status 201
+  body JSON.pretty_generate(result)
+rescue RabbitMQ::ConsistentHash::PluginMissing => e
+  halt 501, "NOT-SUPPORTED: #{e.message}"
+end
+
+# No dependency on a prior POST: #distribution/#total read whatever the
+# management API currently reports, which is an empty hash when the demo
+# queues do not exist yet - not a 404 or a raise.
+get '/demo/consistent-hash' do
+  demo = RabbitMQ::ConsistentHash.new(endpoint_for(fallback_protocol), management)
+  content_type :json
+  status 200
+  body JSON.pretty_generate('distribution' => demo.distribution, 'total' => demo.total)
+end
