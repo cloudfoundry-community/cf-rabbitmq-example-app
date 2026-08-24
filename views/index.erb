@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RabbitMQ Protocol Selector</title>
+<style>
+  body { font-family: sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+  th { background: #f0f0f0; }
+  tr.selected { background: #eaffea; }
+  .badge { font-size: 0.75rem; font-weight: bold; color: #16621a; }
+  .status-advertised { color: #16621a; }
+  .status-derived { color: #7a5c00; }
+  .status-unavailable { color: #8c1c1c; }
+  pre.bind-instructions { background: #f7f2e0; border: 1px solid #d8c98a; padding: 1rem; white-space: pre-wrap; }
+  fieldset { border: 1px solid #ccc; margin-top: 0.5rem; }
+  label { display: inline-block; margin-right: 1rem; }
+</style>
+</head>
+<body>
+<h1>RabbitMQ Protocol Selector</h1>
+<p>The bare routes (<code>/ping</code>, <code>/queues</code>, <code>/queue/:name</code>) default to
+<code>amqp</code>, remapped by whichever protocol you select below.</p>
+
+<% if @bind_instructions %>
+  <pre class="bind-instructions"><%= h(@bind_instructions) %></pre>
+<% else %>
+  <table>
+    <thead>
+      <tr>
+        <th>Protocol</th>
+        <th>Status</th>
+        <th>Host</th>
+        <th>Port</th>
+        <th>TLS</th>
+        <th>Adapter</th>
+        <th>Try it</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @protocols.each do |p| %>
+        <% eh = p['available'] ? p['endpoint'].to_h : nil %>
+        <tr class="<%= p['name'] == @selected ? 'selected' : '' %>">
+          <td>
+            <%= h(p['name']) %>
+            <% if p['name'] == @selected %><span class="badge">selected</span><% end %>
+          </td>
+          <td>
+            <% if p['available'] %>
+              <span class="status-<%= h(p['source']) %>"><%= h(p['source']) %></span>
+            <% else %>
+              <span class="status-unavailable">unavailable</span>
+              <% if p['reason'] %> - <%= h(p['reason']) %><% end %>
+            <% end %>
+          </td>
+          <td><%= eh ? h(eh['host']) : '-' %></td>
+          <td><%= eh ? h(eh['port']) : '-' %></td>
+          <td><%= eh ? (eh['tls'] ? 'yes' : 'no') : '-' %></td>
+          <td><%= p['adapter'] ? 'yes' : 'no' %></td>
+          <td>
+            <% if p['available'] && p['adapter'] %>
+              <a href="<%= h(p['path']) %>/ping">ping</a>
+            <% end %>
+            <% if p['available'] && p['name'] == 'web_mqtt' %>
+              <a href="/web-mqtt/demo">demo</a>
+            <% end %>
+            <% if p['available'] && p['name'] == 'web_stomp' %>
+              <a href="/web-stomp/demo">demo</a>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <h2>Select active protocol</h2>
+  <% selectable = @protocols.select { |p| p['available'] && p['adapter'] } %>
+  <form method="post" action="/select">
+    <fieldset>
+      <% selectable.each do |p| %>
+        <label>
+          <input type="radio" name="protocol" value="<%= h(p['name']) %>"
+            <%= 'checked' if p['name'] == @selected %>>
+          <%= h(p['name']) %>
+        </label>
+      <% end %>
+    </fieldset>
+    <button type="submit">Select</button>
+  </form>
+
+  <h2>MQTT concurrency strategy</h2>
+  <form method="post" action="/select-mqtt">
+    <fieldset>
+      <% MQTT_STRATEGIES.each do |s| %>
+        <label>
+          <input type="radio" name="mqtt" value="<%= h(s) %>"
+            <%= 'checked' if s == @mqtt_strategy %>>
+          <%= h(s) %>
+        </label>
+      <% end %>
+    </fieldset>
+    <button type="submit">Select</button>
+  </form>
+<% end %>
+</body>
+</html>
