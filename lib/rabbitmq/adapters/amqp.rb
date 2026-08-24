@@ -65,7 +65,22 @@ module RabbitMQ
         channel = connection.create_channel
         yield channel
       ensure
+        close_quietly(connection)
+      end
+
+      # Closing a connection that never finished opening makes Bunny try to
+      # write a Close frame down a socket that is already gone, and the
+      # exception that raises from `ensure` REPLACES whatever the method was
+      # about to return or raise. That is how a TLS failure with a perfectly
+      # clear message from Bunny - "certificate verify failed (self-signed
+      # certificate in certificate chain)" - reached the operator as
+      # "ERR:SSL_write", and how a hostname mismatch reached them as a bare
+      # "ERR:Timeout::Error". A failure to close is never the interesting
+      # failure; the one being reported is.
+      def close_quietly(connection)
         connection&.close
+      rescue StandardError
+        nil
       end
     end
   end
