@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'mqtt'
 require 'rabbitmq/endpoint'
 require 'rabbitmq/adapters/mqtt'
 
@@ -31,13 +32,13 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
   it 'derives a per-instance client id so instances do not evict each other' do
     adapter = described_class.new(endpoint)
     allow(ENV).to receive(:[]).with('CF_INSTANCE_INDEX').and_return('3')
-    expect(adapter.client_id).to eq('cf-rabbitmq-example-app-3')
+    expect(adapter.client_id).to eq('cfrmq-3')
   end
 
   it 'falls back to instance 0 when CF_INSTANCE_INDEX is absent' do
     adapter = described_class.new(endpoint)
     allow(ENV).to receive(:[]).with('CF_INSTANCE_INDEX').and_return(nil)
-    expect(adapter.client_id).to eq('cf-rabbitmq-example-app-0')
+    expect(adapter.client_id).to eq('cfrmq-0')
   end
 
   it 'defaults to the serialized strategy' do
@@ -48,9 +49,10 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
     expect(described_class.new(endpoint, strategy: 'nonsense').strategy).to eq('serialized')
   end
 
-  it 'derives a per-queue client id from the queue name' do
+  it 'derives a stable, distinct client id per queue' do
     adapter = described_class.new(endpoint, strategy: 'per-queue')
-    expect(adapter.client_id('alpha')).to end_with('-alpha')
+    expect(adapter.client_id('alpha')).to eq(adapter.client_id('alpha'))
+    expect(adapter.client_id('alpha')).not_to eq(adapter.client_id('beta'))
   end
 
   it 'derives a distinct client id per request' do
@@ -63,5 +65,26 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
     code, body = adapter.consume('alpha')
     expect(code).to eq(409)
     expect(body).to match(/per-request cannot see a prior subscribe/)
+  end
+
+  describe 'the MQTT wire format limit' do
+    # ruby-mqtt raises "Client identifier too long" above 23 bytes,
+    # regardless of protocol version, at serialisation time - a queue
+    # name is caller-supplied and unbounded, so this has to hold for an
+    # arbitrarily long one too, not just the short names used elsewhere
+    # in this file.
+    it 'keeps every strategy client id within 23 bytes, even for a long queue name' do
+      long_queue = 'a' * 200
+      %w[serialized per-queue per-request].each do |strategy|
+        id = described_class.new(endpoint, strategy: strategy).client_id(long_queue)
+        expect(id.bytesize).to be <= 23, "#{strategy} client_id #{id.inspect} is #{id.bytesize} bytes"
+      end
+    end
+
+    it 'produces a client id ruby-mqtt can actually serialise into a CONNECT packet' do
+      id = described_class.new(endpoint).client_id
+      expect { MQTT::Packet::Connect.new(client_id: id, clean_session: true).to_s }
+        .not_to raise_error
+    end
   end
 end

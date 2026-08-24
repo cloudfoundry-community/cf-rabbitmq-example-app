@@ -1,5 +1,6 @@
 require 'mqtt'
 require 'securerandom'
+require 'digest/sha1'
 require 'timeout'
 require_relative 'base'
 
@@ -47,13 +48,22 @@ module RabbitMQ
         }
       end
 
+      # ruby-mqtt enforces MQTT 3.1's 23-byte client identifier limit at
+      # serialisation time regardless of protocol version - it raises
+      # rather than truncating. "cf-rabbitmq-example-app-" alone is
+      # already 25 bytes, so the prefix has to be short by construction,
+      # and a queue name (unbounded, caller-supplied) can never be
+      # concatenated in directly - it is hashed to a fixed-length token
+      # instead.
+      APP_ID = 'cfrmq'
+
       # RabbitMQ evicts the older connection on a duplicate client_id, so
       # the id determines both concurrency safety and whether a prior
       # subscribe is still visible to a later consume.
       def client_id(queue = nil)
-        base = "cf-rabbitmq-example-app-#{ENV['CF_INSTANCE_INDEX'] || '0'}"
+        base = "#{APP_ID}-#{ENV['CF_INSTANCE_INDEX'] || '0'}"
         case strategy
-        when 'per-queue'   then "#{base}-#{queue}"
+        when 'per-queue'   then "#{base}-#{queue_token(queue)}"
         when 'per-request' then "#{base}-#{SecureRandom.hex(4)}"
         else base
         end
@@ -100,6 +110,13 @@ module RabbitMQ
       end
 
       private
+
+      # Fixed-length regardless of queue name length, so an arbitrarily
+      # long (caller-supplied) queue name can never push the client_id
+      # past MQTT's 23-byte wire limit.
+      def queue_token(queue)
+        Digest::SHA1.hexdigest(queue.to_s)[0, 8]
+      end
 
       # Only MQTT serializes, and only under the default strategy. Every
       # other protocol stays fully concurrent.
