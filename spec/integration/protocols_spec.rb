@@ -1,0 +1,170 @@
+require 'spec_helper'
+require 'integration_helper'
+require 'app'
+
+# Exercises the app against the real broker started by
+# docker-compose.test.yml (services: rabbitmq). The binding it uses
+# (integration_vcap) advertises only amqp and management - exactly what a
+# real Blacksmith binding does - so every other protocol below is
+# reached through the app's *derived* path, not a special-cased one.
+RSpec.describe 'protocols against a live broker', :integration do
+  def app
+    Sinatra::Application
+  end
+
+  before { ENV['VCAP_SERVICES'] = integration_vcap }
+
+  describe 'AMQP (advertised)' do
+    it 'round-trips a message through the bare routes' do
+      name = itest_queue('amqp')
+
+      post '/queues', name: name
+      expect(last_response.status).to eq(201)
+
+      put "/queue/#{name}", data: 'hello-amqp'
+      expect(last_response.status).to eq(201)
+
+      get "/queue/#{name}"
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq("hello-amqp\n")
+    end
+
+    it 'reports 404 for a queue that does not exist' do
+      get "/queue/#{itest_queue('absent')}"
+      expect(last_response.status).to eq(404)
+      expect(last_response.body).to eq('NO-SUCH-QUEUE')
+    end
+  end
+
+  describe 'management (advertised)' do
+    it 'answers /mgmt/ping with broker details' do
+      get '/mgmt/ping'
+      expect(last_response.status).to eq(200)
+      expect(JSON.parse(last_response.body)).to have_key('rabbitmq_version')
+    end
+
+    it 'lists the queue created by the AMQP test' do
+      name = itest_queue('listed')
+      post '/queues', name: name
+      expect(last_response.status).to eq(201)
+
+      get '/queues'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to include(name)
+    end
+  end
+
+  describe 'STOMP (derived)' do
+    it 'pings over the derived endpoint' do
+      get '/stomp/ping'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('OK')
+    end
+
+    it 'round-trips a message' do
+      name = itest_queue('stomp')
+
+      post '/stomp/queues', name: name
+      expect(last_response.status).to eq(201)
+
+      put "/stomp/queue/#{name}", data: 'hello-stomp'
+      expect(last_response.status).to eq(201)
+
+      get "/stomp/queue/#{name}"
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq("hello-stomp\n")
+    end
+  end
+
+  describe 'MQTT (derived)' do
+    it 'pings over the derived endpoint' do
+      get '/mqtt/ping'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('OK')
+    end
+  end
+
+  describe 'WebSocket handshakes (derived)' do
+    # web_mqtt/web_stomp URL segments are hyphenated at the route layer
+    # (lib/routes/protocol.rb); only the protocol *keys* stay underscored.
+    #
+    # Both marked pending against a real broker: RabbitMQ::Adapters::WebSocket#ping
+    # (lib/rabbitmq/adapters/websocket.rb) registers its :open handler as
+    # `client.on(:open) { client.send(connect_frame, ...) }`. The
+    # websocket-client-simple gem dispatches handlers via event_emitter's
+    # #emit, which runs each listener with `instance_exec` - so at handler
+    # execution time `self` is the WebSocket::Client::Simple::Client, not
+    # this adapter, and `connect_frame` (private on the adapter) is
+    # undefined on the Client. Every real call to #ping hits this; see the
+    # report ("WebSocket handshake: self mismatch in the :open handler")
+    # for the reproduction and the passing unit spec that could not have
+    # caught it (its FakeWSSocket#fire uses a plain #call, not
+    # instance_exec). Out of scope to fix here - lib/rabbitmq/adapters is
+    # not part of this task's Code Organization.
+    it 'completes the web-mqtt handshake', pending: 'self mismatch in :open handler - see report' do
+      get '/web-mqtt/ping'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('OK')
+    end
+
+    it 'completes the web-stomp handshake', pending: 'self mismatch in :open handler - see report' do
+      get '/web-stomp/ping'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('OK')
+    end
+
+    it 'refuses publish over web-mqtt with a pointer to the browser demo' do
+      put '/web-mqtt/queue/anything', data: 'x'
+      expect(last_response.status).to eq(501)
+      expect(last_response.body).to include('/web-mqtt/demo')
+    end
+
+    it 'refuses publish over web-stomp with a pointer to the browser demo' do
+      put '/web-stomp/queue/anything', data: 'x'
+      expect(last_response.status).to eq(501)
+      expect(last_response.body).to include('/web-stomp/demo')
+    end
+  end
+
+  describe '/protocols' do
+    it 'distinguishes advertised from derived against a binding that only advertises amqp/management' do
+      get '/protocols'
+      expect(last_response.status).to eq(200)
+      body = JSON.parse(last_response.body)
+
+      expect(body['amqp']['source']).to eq('advertised')
+      expect(body['management']['source']).to eq('advertised')
+      expect(body['mqtt']['source']).to eq('derived')
+      expect(body['stomp']['source']).to eq('derived')
+      expect(body['web_mqtt']['source']).to eq('derived')
+      expect(body['web_stomp']['source']).to eq('derived')
+    end
+  end
+
+  # Amendment 6: these only prove the pages and their vendored JS are
+  # reachable over HTTP with the right content-type/status. Nothing here
+  # (or anywhere in CI) drives a real browser, so nothing here proves
+  # mqtt.connect or StompJs.Client actually run against the broker - see
+  # the report for that caveat spelled out in full.
+  describe 'browser demo pages (reachability only, not browser execution)' do
+    it 'serves the web-mqtt demo page' do
+      get '/web-mqtt/demo'
+      expect(last_response.status).to eq(200)
+    end
+
+    it 'serves the web-stomp demo page' do
+      get '/web-stomp/demo'
+      expect(last_response.status).to eq(200)
+    end
+
+    it 'serves the vendored mqtt.js bundle' do
+      get '/js/mqtt.min.js'
+      expect(last_response.status).to eq(200)
+    end
+
+    it 'serves the vendored stomp.js bundle' do
+      get '/js/stomp.umd.min.js'
+      expect(last_response.status).to eq(200)
+    end
+  end
+end

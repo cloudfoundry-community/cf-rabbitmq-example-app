@@ -8,6 +8,7 @@ require 'json'
 require 'webmock/rspec'
 
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+$LOAD_PATH.unshift File.expand_path('integration', __dir__)
 
 FIXTURE_DIR = File.expand_path('fixtures', __dir__)
 
@@ -23,4 +24,9 @@ RSpec.configure do |config|
     example.run
     original.nil? ? ENV.delete('VCAP_SERVICES') : ENV.store('VCAP_SERVICES', original)
   end
+
+  # spec/integration talks to a real broker (docker-compose.test.yml) and
+  # is skipped by default so the unit suite stays Docker-free. Opt in with
+  # RABBITMQ_INTEGRATION=1.
+  config.filter_run_excluding(:integration) unless ENV['RABBITMQ_INTEGRATION'] == '1'
 end
