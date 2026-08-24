@@ -73,6 +73,23 @@ RSpec.describe RabbitMQ::ConsistentHash do
     expect(demo.total).to eq(0)
   end
 
+  # The management API can report a queue entry with no populated
+  # `messages` field - e.g. a queue temporarily down or unreachable in a
+  # cluster. [34, nil].sum raises TypeError; #distribution normalises to
+  # 0 so #total (and the JSON the route renders) never blows up on it.
+  it 'treats a queue with no messages field as zero, not a raised error' do
+    allow(management).to receive(:queues).and_return([
+      { 'name' => 'consistent-hash-demo-0', 'messages' => 5 },
+      { 'name' => 'consistent-hash-demo-1', 'messages' => nil }
+    ])
+
+    expect(demo.distribution).to eq(
+      'consistent-hash-demo-0' => 5,
+      'consistent-hash-demo-1' => 0
+    )
+    expect(demo.total).to eq(5)
+  end
+
   describe '#run' do
     let(:connection) { instance_double(Bunny::Session, start: nil, create_channel: channel, close: nil) }
     let(:channel) { instance_double(Bunny::Channel) }
@@ -97,13 +114,26 @@ RSpec.describe RabbitMQ::ConsistentHash do
       expect(connection).to have_received(:close).once
     end
 
-    it 'raises PluginMissing when the broker rejects the x-consistent-hash type, and still closes the connection' do
-      allow(channel).to receive(:exchange)
-        .and_raise(Bunny::ChannelLevelException.new('COMMAND_INVALID - unknown exchange type', channel, nil))
+    # AMQP 0-9-1 classifies reply-code 503 (COMMAND_INVALID, RabbitMQ's
+    # error for an unrecognised exchange type) as a hard error - a
+    # connection-level close - and Bunny maps it to
+    # Bunny::CommandInvalid < Bunny::ConnectionLevelException, a sibling
+    # of Bunny::ChannelLevelException, not a subclass of it (see
+    # session.rb#instantiate_connection_level_exception vs.
+    # channel.rb#instantiate_channel_level_exception). #run must
+    # translate either family into PluginMissing, since which one a given
+    # broker actually sends cannot be confirmed without a live instance.
+    {
+      'a channel-level close' => -> { Bunny::ChannelLevelException.new('COMMAND_INVALID - unknown exchange type', nil, nil) },
+      'a connection-level close (Bunny::CommandInvalid)' => -> { Bunny::CommandInvalid.new('COMMAND_INVALID - unknown exchange type', nil, nil) }
+    }.each do |description, error_factory|
+      it "raises PluginMissing on #{description}, and still closes the connection" do
+        allow(channel).to receive(:exchange).and_raise(error_factory.call)
 
-      expect { demo.run(queues: 2, messages: 1) }
-        .to raise_error(RabbitMQ::ConsistentHash::PluginMissing)
-      expect(connection).to have_received(:close).once
+        expect { demo.run(queues: 2, messages: 1) }
+          .to raise_error(RabbitMQ::ConsistentHash::PluginMissing)
+        expect(connection).to have_received(:close).once
+      end
     end
 
     it 'still closes the connection when Bunny.new itself raises' do
@@ -191,15 +221,22 @@ RSpec.describe 'consistent-hash exchange routes' do
     end
 
     # Amendment 3: an unknown exchange type is a clear, named failure -
-    # not the catch-all handler's opaque "ERR:..." 500.
-    it 'reports 501 naming the plugin when the broker rejects the exchange type' do
-      allow(channel).to receive(:exchange)
-        .and_raise(Bunny::ChannelLevelException.new('COMMAND_INVALID - unknown exchange type', channel, nil))
+    # not the catch-all handler's opaque "ERR:..." 500. Parameterised over
+    # both exception families Bunny can raise for it (see the #run specs
+    # above for why) so this doesn't just prove the rescue clause matches
+    # the class the test itself picked.
+    {
+      'a channel-level close' => -> { Bunny::ChannelLevelException.new('COMMAND_INVALID - unknown exchange type', nil, nil) },
+      'a connection-level close (Bunny::CommandInvalid)' => -> { Bunny::CommandInvalid.new('COMMAND_INVALID - unknown exchange type', nil, nil) }
+    }.each do |description, error_factory|
+      it "reports 501 naming the plugin on #{description}" do
+        allow(channel).to receive(:exchange).and_raise(error_factory.call)
 
-      post '/demo/consistent-hash'
+        post '/demo/consistent-hash'
 
-      expect(last_response.status).to eq(501)
-      expect(last_response.body).to include('rabbitmq_consistent_hash_exchange')
+        expect(last_response.status).to eq(501)
+        expect(last_response.body).to include('rabbitmq_consistent_hash_exchange')
+      end
     end
 
     # Amendment 1: this demo is AMQP-only. A viewer's protocol selection
