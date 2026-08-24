@@ -291,6 +291,102 @@ This is tracked upstream as
 Until the forge advertises the rest of the enabled protocols directly,
 derivation is what makes them reachable at all.
 
+## TLS
+
+Six protocols have a TLS form: `amqps`, `management_tls`, `mqtts`,
+`stomps`, `web_mqtt_tls` and `web_stomp_tls`. All six verify the
+broker's certificate — chain **and** hostname — by default.
+
+That default is not what the client gems do on their own. Bunny
+(`amqps`) and `Net::HTTP` (`management_tls`) verify; the other three
+gems do not:
+
+| gem | out of the box |
+|---|---|
+| `bunny` | verifies |
+| `net/http` | verifies |
+| `mqtt` 0.7.0 | checks the hostname, never the chain |
+| `stomp` 1.4.10 | `verify_mode = VERIFY_NONE`, hard-coded |
+| `websocket-client-simple` 0.9.0 | verifies only if the caller asks |
+
+Left at their defaults, `/mqtts/ping`, `/stomps/ping`,
+`/web-mqtt-tls/ping` and `/web-stomp-tls/ping` all returned **200 OK**
+against a broker holding a certificate from a CA in no trust store, and
+three of the four did the same against a certificate issued to an
+entirely different hostname. That is encryption with no
+authentication, reported as a healthy binding — the one answer a
+verification app must never give. `lib/rabbitmq/tls.rb` supplies the
+policy those adapters were missing; `spec/integration/tls_spec.rb`
+holds all three cases down against real brokers.
+
+### Trusting a private CA
+
+Blacksmith signs each deployment's service certificates with its own
+CA, which is in no default trust store. Point OpenSSL at it:
+
+```bash
+cf set-env rabbitmq-example-app SSL_CERT_FILE /path/to/ca-bundle.pem
+```
+
+`SSL_CERT_FILE` is read by every adapter here — it is the single lever,
+not an app-specific variable. The bundle must contain the platform CAs
+as well if anything else in the app needs them.
+
+### Turning verification off
+
+```bash
+cf set-env rabbitmq-example-app RABBITMQ_VERIFY_PEER false
+```
+
+Accepted values are `true`, `false`, `1`, `0` only; anything else is a
+startup error rather than a guess. This disables verification for all
+six TLS protocols at once and is the documented escape hatch for a lab
+where adding the CA is not worth it. It is not appropriate anywhere
+real — an unverified TLS connection tells you nothing about who is on
+the other end.
+
+### What `stomps` can and cannot promise
+
+The `stomp` gem verifies only when handed a trust store through
+`Stomp::SSLParams(:ts_files)`, and that code path guards each file with
+`File::exists?` — removed from the Ruby this app runs on, so it raises
+`NoMethodError` before a socket is opened. 1.4.10 is the newest
+release, so there is no version to move to.
+
+`stomps` therefore verifies the endpoint on a connection this app opens
+itself, immediately before handing off to the gem. That catches the
+wrong CA, an expired certificate and the wrong hostname — the failures
+that actually happen. It does **not** authenticate the connection the
+messages then travel over; a broker that served a different certificate
+to each connection would not be caught. `web_mqtt_tls` and
+`web_stomp_tls` are checked the same way for hostname, because
+`websocket-client-simple` has no hook for it, though their chain is
+verified by the gem on the real connection.
+
+### The forge renders no TLS listener for four of the six
+
+`rabbitmq-forge-boshrelease` writes `listeners.ssl` and
+`management.ssl` when `rabbitmq.tls.enabled` is set, and says nothing
+about the MQTT, STOMP, Web-MQTT or Web-STOMP plugins. Those plugins do
+not inherit the core listener settings. Rendering the forge's own
+TLS-only configuration (`tls.enabled: true`, `dual-mode: false`)
+against RabbitMQ 4.2.9 produces:
+
+```
+port 5671   amqp/ssl          <- TLS, as intended
+port 15671  https             <- TLS, as intended
+port 1883   mqtt              <- plaintext, still open
+port 61613  stomp             <- plaintext, still open
+port 15675  http/web-mqtt     <- plaintext, still open
+port 15674  http/web-stomp    <- plaintext, still open
+```
+
+So "TLS only" turns off plaintext AMQP and leaves four protocols
+carrying credentials in the clear, with no TLS port to move them to.
+`spec/support/rabbitmq-tls.conf` shows the four lines that fix it
+(`mqtt.listeners.ssl.default`, `stomp.listeners.ssl.default`,
+`web_mqtt.ssl.*`, `web_stomp.ssl.*`).
+
 ## `instances: 1`
 
 The manifest deploys a single instance deliberately, because of MQTT.
@@ -329,9 +425,11 @@ common between the two stacks.
 
 **Automated verification:** the unit and integration suites
 (`spec/unit`, `spec/integration`) run in CI against
-`rabbitmq:3.13-management` in Docker
+`rabbitmq:3.13-management` and `rabbitmq:4.2-management` in Docker
 (`docker-compose.test.yml`) — AMQP, management, MQTT, STOMP, Web-MQTT,
-Web-STOMP, and the consistent-hash exchange are all exercised there.
+Web-STOMP, the consistent-hash exchange, and all six TLS protocols are
+exercised there. Run `spec/support/gen-tls-certs.sh` once before
+starting the brokers; the certificates it writes are git-ignored.
 
 **Live verification:** confirmed against a Blacksmith-provisioned
 instance (`rabbitmq-forge` 1.5.1, RabbitMQ 4.2.8) on a Cloud Foundry
@@ -349,11 +447,20 @@ foundation, `cflinuxfs5`, bound with `cf bind-service`:
 - `/demo/consistent-hash` distributed 12 messages across 3 queues.
 - No credential appeared in any response body.
 
-**Still not covered:** TLS. The verified instance ran with
-`RabbitMQ TLS: Disabled`, so `amqps`, `mqtts`, `stomps` and the `*_tls`
-protocols remain exercised only by unit tests. Browser execution of the
-two demo pages is also unverified — CI proves the vendored JS is served,
-not that it runs.
+**TLS verification:** covered against real brokers by
+`spec/integration/tls_spec.rb` (`rabbitmq:4.2-management`, the line the
+forge deploys). All six TLS protocols round-trip or ping against a
+certificate that verifies, are refused against one from an untrusted
+CA, are refused against one naming a different host, and connect again
+under `RABBITMQ_VERIFY_PEER=false`. See [TLS](#tls).
+
+**Still not covered:** TLS against a *Blacksmith-provisioned* instance.
+The instance verified above ran `RabbitMQ TLS: Disabled` — the
+Blacksmith kit's `rabbitmq-tls` feature has to be listed explicitly in
+the environment file, since the OCFP feature hook that is supposed to
+add it does not reach the blueprint. Browser execution of the two demo
+pages is also unverified — CI proves the vendored JS is served, not
+that it runs.
 
 **Operator note:** application security groups must allow egress from
 the app to the service network on the protocol ports. A default CF
