@@ -12,7 +12,7 @@ require 'json'
 set :raise_errors, false
 set :show_exceptions, false
 
-$LOAD_PATH.unshift(File.expand_path('..', __dir__)) unless $LOAD_PATH.include?(File.expand_path('..', __dir__))
+$LOAD_PATH.unshift(__dir__) unless $LOAD_PATH.include?(__dir__)
 
 require 'rabbitmq/binding'
 require 'rabbitmq/resolver'

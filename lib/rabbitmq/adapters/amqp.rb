@@ -29,12 +29,19 @@ module RabbitMQ
         end
       end
 
+      # passive: true requires the queue to already exist rather than
+      # creating it - PUT is publish-to-existing, not declare-on-demand.
+      # Declaration is POST /queues' job (#declare); without passive here,
+      # a PUT to a queue nobody declared would silently create it and
+      # return 201 instead of the 404 the route contract promises.
       def publish(name, data)
         with_channel do |ch|
-          ch.queue(name, durable: false)
+          ch.queue(name, durable: false, passive: true)
           ch.default_exchange.publish(data, routing_key: name, content_type: 'text/plain')
           [201, 'SUCCESS']
         end
+      rescue Bunny::NotFound
+        raise QueueNotFound, name
       end
 
       # basic_get keeps the app stateless. A missing queue raises

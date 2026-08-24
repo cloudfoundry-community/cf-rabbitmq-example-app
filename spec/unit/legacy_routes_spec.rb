@@ -15,6 +15,13 @@ RSpec.describe 'bare routes' do
     allow(RabbitMQ::Adapters::Management).to receive(:new).and_return(mgmt)
   end
 
+  describe 'booting' do
+    it 'loads with a clean load path, as config.ru does' do
+      output = `cd #{Dir.pwd} && APP_ENV=test bundle exec ruby -e 'require "./lib/app"' 2>&1`
+      expect($?.success?).to be(true), "app failed to boot: #{output}"
+    end
+  end
+
   context 'when no service is bound' do
     before { ENV.delete('VCAP_SERVICES') }
 
@@ -118,10 +125,11 @@ RSpec.describe 'bare routes' do
   end
 
   describe 'GET /env' do
-    it 'reports the resolved uri' do
+    it 'reports the resolved uri without credentials' do
       get '/env'
       expect(last_response.status).to eq(200)
-      expect(last_response.body).to match('amqp://')
+      expect(last_response.body).to eq("rabbitmq_url: amqp://10.7.16.17:5672\n")
+      expect(last_response.body).not_to include('app-pass')
     end
   end
 
@@ -144,11 +152,20 @@ RSpec.describe 'bare routes' do
       expect(last_response.status).to eq(200)
     end
 
+    it 'selects the protocol from the cookie when no param is given' do
+      allow(mgmt).to receive(:ping).and_return([200, 'MGMT-OK'])
+      set_cookie 'rmq_protocol=management'
+      get '/ping'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('MGMT-OK')
+    end
+
     it 'prefers the query param over the cookie' do
       allow(amqp).to receive(:ping).and_return([200, 'OK'])
-      set_cookie "rmq_protocol=web_stomp_tls"
+      set_cookie 'rmq_protocol=management'
       get '/ping', { protocol: 'amqp' }
       expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('OK')
     end
   end
 
