@@ -45,6 +45,18 @@ RSpec.describe 'root index' do
     expect(last_response.headers['Set-Cookie'].to_s).not_to include('nonsense')
   end
 
+  it 'does not offer protocols that have no registered adapter' do
+    get '/'
+    expect(last_response.body).not_to match(/name="protocol"[^>]*value="mqtt"/)
+    expect(last_response.body).not_to match(/name="protocol"[^>]*value="stomp"/)
+    expect(last_response.body).not_to match(/name="protocol"[^>]*value="web_mqtt"/)
+  end
+
+  it 'does offer protocols that resolve and have an adapter' do
+    get '/'
+    expect(last_response.body).to match(/name="protocol"[^>]*value="amqp"/)
+  end
+
   context 'when no service is bound' do
     before { ENV.delete('VCAP_SERVICES') }
 
