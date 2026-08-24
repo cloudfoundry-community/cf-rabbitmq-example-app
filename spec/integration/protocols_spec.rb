@@ -88,26 +88,24 @@ RSpec.describe 'protocols against a live broker', :integration do
     # web_mqtt/web_stomp URL segments are hyphenated at the route layer
     # (lib/routes/protocol.rb); only the protocol *keys* stay underscored.
     #
-    # Both marked pending against a real broker: RabbitMQ::Adapters::WebSocket#ping
-    # (lib/rabbitmq/adapters/websocket.rb) registers its :open handler as
-    # `client.on(:open) { client.send(connect_frame, ...) }`. The
-    # websocket-client-simple gem dispatches handlers via event_emitter's
-    # #emit, which runs each listener with `instance_exec` - so at handler
-    # execution time `self` is the WebSocket::Client::Simple::Client, not
-    # this adapter, and `connect_frame` (private on the adapter) is
-    # undefined on the Client. Every real call to #ping hits this; see the
-    # report ("WebSocket handshake: self mismatch in the :open handler")
-    # for the reproduction and the passing unit spec that could not have
-    # caught it (its FakeWSSocket#fire uses a plain #call, not
-    # instance_exec). Out of scope to fix here - lib/rabbitmq/adapters is
-    # not part of this task's Code Organization.
-    it 'completes the web-mqtt handshake', pending: 'self mismatch in :open handler - see report' do
+    # Previously pending against a real broker: RabbitMQ::Adapters::WebSocket#ping
+    # (lib/rabbitmq/adapters/websocket.rb) used to register its :open
+    # handler as `client.on(:open) { client.send(connect_frame, ...) }`.
+    # The websocket-client-simple gem dispatches handlers via
+    # event_emitter's #emit, which runs each listener with
+    # `instance_exec` - so at handler execution time `self` was the
+    # WebSocket::Client::Simple::Client, not the adapter, and
+    # connect_frame (private on the adapter) was undefined on the
+    # Client. Fixed by computing the frame and its type in adapter scope
+    # and capturing them as locals, which instance_exec's self-rebinding
+    # cannot touch. Verified against the real broker below.
+    it 'completes the web-mqtt handshake' do
       get '/web-mqtt/ping'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('OK')
     end
 
-    it 'completes the web-stomp handshake', pending: 'self mismatch in :open handler - see report' do
+    it 'completes the web-stomp handshake' do
       get '/web-stomp/ping'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('OK')

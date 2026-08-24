@@ -6,6 +6,18 @@ require 'rabbitmq/adapters/websocket'
 # A minimal double for WebSocket::Client::Simple::Client: records
 # registered handlers and lets a test fire them synchronously, standing
 # in for the gem's own background-thread-driven socket.
+#
+# #fire dispatches via instance_exec, exactly like the real gem's
+# dependency: websocket-client-simple's Client#connect (via EventEmitter#on)
+# and #emit (event_emitter-0.2.6/lib/event_emitter/emitter.rb) run every
+# registered listener with `instance_exec(*data, &listener)`, which rebinds
+# `self` to the emitter (the Client) for the duration of the block. A fake
+# that instead used a plain `#call` would leave `self` as whatever defined
+# the handler - a real gap once: the adapter's :open handler referenced a
+# private adapter method (connect_frame) as a bare call, which only failed
+# against the real gem's instance_exec dispatch, not against a #call-based
+# fake. Dispatching the same way here is what makes this fake trustworthy
+# as a stand-in.
 class FakeWSSocket
   attr_reader :sent
 
@@ -24,7 +36,10 @@ class FakeWSSocket
   def close; end
 
   def fire(event, *args)
-    @handlers[event]&.call(*args)
+    handler = @handlers[event]
+    return unless handler
+
+    instance_exec(*args, &handler)
   end
 end
 

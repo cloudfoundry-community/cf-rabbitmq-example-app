@@ -24,6 +24,19 @@ module RabbitMQ
       end
 
       def ping
+        # Computed here, in adapter scope, and captured as locals below -
+        # not called as connect_frame/frame_type from inside the :open
+        # handler. event_emitter's #emit (the gem's dispatch mechanism)
+        # runs every registered listener via instance_exec, which rebinds
+        # self to the WebSocket::Client::Simple::Client for the duration
+        # of the block - connect_frame and frame_type are private methods
+        # on this adapter, undefined on the Client, so calling them from
+        # inside the handler raised NameError on every real handshake.
+        # Local variables are resolved lexically through the closure, not
+        # via self, so instance_exec rebinding self cannot break a
+        # reference to one - only a bare method call could.
+        outgoing = connect_frame
+        outgoing_type = frame_type
         frame = nil
         error = nil
         socket = nil
@@ -57,7 +70,7 @@ module RabbitMQ
             url, headers: { 'Sec-WebSocket-Protocol' => subprotocol }
           ) do |client|
             socket = client
-            client.on(:open) { client.send(connect_frame, type: frame_type) }
+            client.on(:open) { client.send(outgoing, type: outgoing_type) }
             client.on(:message) { |msg| frame = msg.data }
             client.on(:error) { |e| error = e }
           end
