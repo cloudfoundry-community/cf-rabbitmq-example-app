@@ -46,24 +46,30 @@ RSpec.describe 'browser demo routes' do
 
   it 'never carries the password on either rendered demo page' do
     get '/web-mqtt/demo'
+    expect(last_response.status).to eq(200)
     expect(last_response.body).not_to include('app-pass')
 
     get '/web-stomp/demo'
+    expect(last_response.status).to eq(200)
     expect(last_response.body).not_to include('app-pass')
   end
 
   it 'renders both demo pages fully offline, with no external asset references' do
     get '/web-mqtt/demo'
+    expect(last_response.status).to eq(200)
     expect(strip_html_comments(last_response.body)).not_to match(%r{https?://})
 
     get '/web-stomp/demo'
+    expect(last_response.status).to eq(200)
     expect(strip_html_comments(last_response.body)).not_to match(%r{https?://})
   end
 
-  # protocol_report only has to iterate the four web_* keys - it never has
-  # to find one. When the binding advertises none of them and none can be
-  # derived, the endpoint is nil for every one, and the route must still
-  # answer 200 with an empty report rather than raising.
+  # The /demo/config.json route (lib/routes/demo.rb) builds its report by
+  # calling resolver.resolve for each of the four web_* keys and skipping
+  # any that come back nil - it never requires at least one to resolve.
+  # When the binding advertises none of them and none can be derived, the
+  # endpoint is nil for every one, and the route must still answer 200
+  # with an empty report rather than raising.
   it 'returns an empty report, not an error, when no web_* protocol resolves' do
     allow_any_instance_of(RabbitMQ::Resolver).to receive(:resolve).and_return(nil)
 
