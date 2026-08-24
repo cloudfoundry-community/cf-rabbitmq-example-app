@@ -24,6 +24,9 @@ jobs:
         with:
           ruby-version: .ruby-version
           bundler-cache: true
+      # The TLS brokers mount certificates that are generated, not
+      # committed - a checkout has none until this runs.
+      - run: spec/support/gen-tls-certs.sh
       # --wait polls each service's own healthcheck (docker-compose.test.yml)
       # instead of guessing a fixed sleep.
       - run: docker compose -f docker-compose.test.yml up -d --wait
