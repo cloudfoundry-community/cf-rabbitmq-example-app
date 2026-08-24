@@ -1,14 +1,18 @@
 source 'https://rubygems.org'
 
-gem 'sinatra'
-gem 'bunny'
+ruby '3.3.6'
+
+gem 'sinatra', '~> 4.0'
 gem 'rackup'
 gem 'puma'
 
-gem 'cf-app-utils', '~>0.6' # git: 'http://github.com/cloudfoundry/cf-app-utils-ruby.git'
+gem 'bunny'
+gem 'mqtt'
+gem 'stomp'
+gem 'websocket-client-simple'
 
 group :test do
   gem 'rack-test'
   gem 'rspec'
-  gem 'childprocess'
+  gem 'webmock'
 end

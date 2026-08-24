@@ -1,6 +1,5 @@
 require 'sinatra'
 require 'bunny'
-require 'cf-app-utils'
 
 DATA ||= {}
 

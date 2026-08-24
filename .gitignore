@@ -1,0 +1,5 @@
+/vendor/
+/.bundle/
+/rabbitmq.log
+*.gem
+.DS_Store
