@@ -33,7 +33,10 @@ module RabbitMQ
     private
 
     def locate(raw)
-      JSON.parse(raw).each_value do |services|
+      parsed = JSON.parse(raw)
+      return nil unless parsed.is_a?(Hash)
+
+      parsed.each_value do |services|
         Array(services).each do |service|
           creds = service['credentials']
           return creds if rabbitmq?(creds)
@@ -49,7 +52,10 @@ module RabbitMQ
       return false unless creds.is_a?(Hash)
       return true if creds['protocols'].is_a?(Hash)
 
-      Array(creds['uris']).push(creds['uri']).compact.any? { |u| u.start_with?('amqp://', 'amqps://') }
+      # Kernel#Array returns the SAME object for an Array argument, so pushing
+      # onto it would mutate credentials['uris'] in place. Build a new array.
+      uris = Array(creds['uris']) + [creds['uri']]
+      uris.compact.any? { |u| u.start_with?('amqp://', 'amqps://') }
     end
   end
 end
