@@ -53,3 +53,66 @@ services:
       interval: 5s
       timeout: 10s
       retries: 20
+
+  # TLS for every protocol, on the standard TLS ports (5671, 15671, 8883,
+  # 61614, 15676) plus 15679 for web-stomp. A separate broker rather than
+  # TLS on the one above, because the app derives a TLS endpoint on the
+  # protocol's *standard* port against the binding's host - so with both
+  # published on localhost, every derived TLS endpoint lands here and
+  # every plaintext one lands on rabbitmq, with no fixture gymnastics.
+  #
+  # Image: rabbitmq:4.2-management. Deliberately a different line from the
+  # 3.13 broker above: 4.2 is what the Blacksmith rabbitmq forge deploys
+  # (verified at 4.2.8), and TLS listener configuration is exactly where
+  # the two lines could diverge.
+  #
+  # Certificates come from spec/support/gen-tls-certs.sh - run it first.
+  rabbitmq-tls:
+    image: rabbitmq:4.2-management
+    ports:
+      - "5671:5671"
+      - "15671:15671"
+      - "8883:8883"
+      - "61614:61614"
+      - "15676:15676"
+      - "15679:15679"
+    volumes:
+      - ./spec/support/tls:/certs:ro
+      - ./spec/support/rabbitmq-tls.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    command: >
+      bash -c "rabbitmq-plugins enable --offline
+      rabbitmq_management rabbitmq_mqtt rabbitmq_stomp
+      rabbitmq_web_mqtt rabbitmq_web_stomp &&
+      rabbitmq-server"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # Same certificate authority as rabbitmq-tls, but the certificate names
+  # wrong.example.invalid. Exists so spec/integration/tls_spec.rb can tell
+  # "verifies the chain" apart from "verifies who it is talking to" - four
+  # of the six TLS protocols passed the first and failed the second.
+  rabbitmq-wrong-host:
+    image: rabbitmq:4.2-management
+    ports:
+      - "5681:5681"
+      - "26671:26671"
+      - "18883:18883"
+      - "51614:51614"
+      - "25676:25676"
+      - "25679:25679"
+    volumes:
+      - ./spec/support/tls:/certs:ro
+      - ./spec/support/rabbitmq-wrong-host.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    command: >
+      bash -c "rabbitmq-plugins enable --offline
+      rabbitmq_management rabbitmq_mqtt rabbitmq_stomp
+      rabbitmq_web_mqtt rabbitmq_web_stomp &&
+      rabbitmq-server"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30

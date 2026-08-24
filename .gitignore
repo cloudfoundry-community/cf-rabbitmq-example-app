@@ -3,3 +3,4 @@
 /rabbitmq.log
 *.gem
 .DS_Store
+/spec/support/tls/
