@@ -57,7 +57,7 @@ module RabbitMQ
     def distribution
       @management.queues
                  .select { |q| q['name'].to_s.match?(QUEUE_NAME_PATTERN) }
-                 .to_h { |q| [q['name'], q['messages']] }
+                 .to_h { |q| [q['name'], q['messages'].to_i] }
     end
 
     def total
@@ -69,9 +69,19 @@ module RabbitMQ
     # Scoped to just the exchange declaration - other channel-level errors
     # further down (e.g. a precondition failure on a queue bind) are real
     # faults, not a missing plugin, and should not be misreported as one.
+    #
+    # Reply-code 503 (COMMAND_INVALID), which is what RabbitMQ uses for an
+    # unrecognised exchange type, is classified as a hard error by AMQP
+    # 0-9-1 - a connection-level close, not a channel-level one - and
+    # Bunny maps it to Bunny::CommandInvalid < Bunny::ConnectionLevelException
+    # (bunny/session.rb#instantiate_connection_level_exception), a sibling
+    # of Bunny::ChannelLevelException, not a subclass of it. Some other
+    # broker could plausibly signal this as a channel-level close instead,
+    # and this path cannot be exercised without a live instance (see Task
+    # 13), so both families are caught here.
     def declare_exchange(channel)
       channel.exchange(EXCHANGE_NAME, type: 'x-consistent-hash', durable: false)
-    rescue Bunny::ChannelLevelException
+    rescue Bunny::ChannelLevelException, Bunny::ConnectionLevelException
       raise PluginMissing
     end
   end
