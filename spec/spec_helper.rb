@@ -1,24 +1,21 @@
 require 'rack/test'
-RSpec.configure do |config|
-  config.include Rack::Test::Methods
+require 'json'
+require 'webmock/rspec'
+
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
+FIXTURE_DIR = File.expand_path('fixtures', __dir__)
+
+def vcap_fixture(name)
+  File.read(File.join(FIXTURE_DIR, 'vcap', "#{name}.json"))
 end
 
-if ENV.has_key?('VCAP_SERVICES')
-  puts "Not starting local rabbitmq, using the one defined in VCAP_SERVICES"
-else
-  require 'support/rabbitmq_server'
-  RABBITMQ = RabbitMQServer.new(
-    host: "localhost",
-    port: 5673
-  )
-
-  RSpec.configure do |config|
-    config.before(:suite) do
-      RABBITMQ.start
-    end
-
-    config.after(:suite) do
-      RABBITMQ.stop
-    end
+RSpec.configure do |config|
+  config.include Rack::Test::Methods
+  config.disable_monkey_patching!
+  config.around(:each) do |example|
+    original = ENV['VCAP_SERVICES']
+    example.run
+    original.nil? ? ENV.delete('VCAP_SERVICES') : ENV.store('VCAP_SERVICES', original)
   end
 end
