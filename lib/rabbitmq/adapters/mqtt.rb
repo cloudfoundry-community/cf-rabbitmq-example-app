@@ -1,8 +1,10 @@
 require 'mqtt'
+require 'openssl'
 require 'securerandom'
 require 'digest/sha1'
 require 'timeout'
 require_relative 'base'
+require_relative '../tls'
 
 module RabbitMQ
   module Adapters
@@ -77,7 +79,7 @@ module RabbitMQ
 
       def ping
         with_strategy do
-          ::MQTT::Client.connect(**connection_options) { |_c| nil }
+          with_client { |_c| nil }
           [200, 'OK']
         end
       end
@@ -114,7 +116,7 @@ module RabbitMQ
       # with it varied - the id was never the cause.
       def declare(name)
         with_strategy do
-          ::MQTT::Client.connect(**connection_options(name)) do |client|
+          with_client(name) do |client|
             client.subscribe(name => 1)
             client.publish(FLUSH_TOPIC, '', false, 1)
           end
@@ -124,7 +126,7 @@ module RabbitMQ
 
       def publish(name, data)
         with_strategy do
-          ::MQTT::Client.connect(**connection_options(name)) do |client|
+          with_client(name) do |client|
             client.publish(name, data, false, 1)
           end
           [201, 'SUCCESS']
@@ -146,6 +148,32 @@ module RabbitMQ
 
       private
 
+      # MQTT::Client.connect (the class method) news a client and connects
+      # it in one step, leaving no point at which its SSL context can be
+      # configured - and ruby-mqtt's default context sets no verify_mode
+      # at all, so a TLS connection through it accepts any certificate.
+      # Splitting new from connect is the whole reason this method exists;
+      # everything else about the call is unchanged.
+      def with_client(queue = nil, &block)
+        client = ::MQTT::Client.new(**connection_options(queue))
+        apply_tls(client)
+        client.connect(&block)
+      end
+
+      # ruby-mqtt does check the hostname (Client#connect calls
+      # post_connection_check when verify_host is set, which is its
+      # default) - but only the hostname. Without a verify_mode the chain
+      # is never validated, so a certificate for the right name from any
+      # issuer at all is accepted. Setting both closes it: measured
+      # against a broker whose certificate came from an untrusted CA,
+      # /mqtts/ping went from 200 OK to a named SSLError.
+      def apply_tls(client)
+        return unless endpoint.tls
+
+        client.ssl_context.verify_mode = RabbitMQ::TLS.verify_mode(endpoint)
+        client.ssl_context.cert_store = RabbitMQ::TLS.cert_store if endpoint.verify_peer?
+      end
+
       # Fixed-length regardless of queue name length, so an arbitrarily
       # long (caller-supplied) queue name can never push the client_id
       # past MQTT's 23-byte wire limit.
@@ -166,7 +194,7 @@ module RabbitMQ
       # a typo, and it still runs Client#connect's own `ensure disconnect`
       # as the stack unwinds.
       def consume_once(name)
-        ::MQTT::Client.connect(**connection_options(name)) do |client|
+        with_client(name) do |client|
           client.subscribe(name => 1)
           Timeout.timeout(READ_TIMEOUT) do
             _topic, message = client.get

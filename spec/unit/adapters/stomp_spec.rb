@@ -162,3 +162,69 @@ RSpec.describe RabbitMQ::Adapters::Stomp do
     end
   end
 end
+
+RSpec.describe RabbitMQ::Adapters::Stomp, 'over TLS' do
+  def tls_endpoint(verify_peer)
+    RabbitMQ::Endpoint.new(
+      protocol: 'stomps', host: 'broker.example', port: 61614, tls: true,
+      username: 'app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: verify_peer
+    )
+  end
+
+  let(:plaintext) do
+    RabbitMQ::Endpoint.new(
+      protocol: 'stomp', host: 'broker.example', port: 61613, tls: false,
+      username: 'app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: true
+    )
+  end
+
+  # The gem verifies nothing: /stomps/ping answered 200 OK against a
+  # broker whose CA was in no trust store, and again against one holding a
+  # certificate for a completely different hostname.
+  it 'reports 502 naming the reason, and never opens a STOMP connection' do
+    allow(RabbitMQ::TLS).to receive(:verify_endpoint)
+      .and_return('certificate verify failed (unable to get local issuer certificate)')
+    expect(::Stomp::Client).not_to receive(:new)
+
+    code, body = described_class.new(tls_endpoint(true)).ping
+
+    expect(code).to eq(502)
+    expect(body).to include('unable to get local issuer certificate')
+  end
+
+  it 'refuses publish on an unverifiable endpoint too, not just ping' do
+    allow(RabbitMQ::TLS).to receive(:verify_endpoint).and_return('bad certificate')
+
+    code, = described_class.new(tls_endpoint(true)).publish('alpha', 'data')
+    expect(code).to eq(502)
+  end
+
+  it 'connects when the certificate verifies' do
+    allow(RabbitMQ::TLS).to receive(:verify_endpoint).and_return(nil)
+    client = instance_double(::Stomp::Client, close: nil,
+                             connection_frame: instance_double(Stomp::Message, command: 'CONNECTED', headers: {}))
+    allow(::Stomp::Client).to receive(:new).and_return(client)
+
+    expect(described_class.new(tls_endpoint(true)).ping).to eq([200, 'OK'])
+  end
+
+  it 'does not preflight when the operator opted out of verification' do
+    expect(RabbitMQ::TLS).not_to receive(:verify_endpoint)
+    allow(::Stomp::Client).to receive(:new)
+      .and_raise(Stomp::Error::MaxReconnectAttempts.new)
+
+    expect { described_class.new(tls_endpoint(false)).ping }
+      .to raise_error(Stomp::Error::MaxReconnectAttempts)
+  end
+
+  it 'does not preflight a plaintext endpoint' do
+    expect(RabbitMQ::TLS).not_to receive(:verify_endpoint)
+    allow(::Stomp::Client).to receive(:new)
+      .and_raise(Stomp::Error::MaxReconnectAttempts.new)
+
+    expect { described_class.new(plaintext).ping }
+      .to raise_error(Stomp::Error::MaxReconnectAttempts)
+  end
+end

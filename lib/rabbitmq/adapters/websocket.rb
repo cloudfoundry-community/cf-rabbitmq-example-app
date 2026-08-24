@@ -2,6 +2,7 @@ require 'websocket-client-simple'
 require 'mqtt'
 require 'timeout'
 require_relative 'base'
+require_relative '../tls'
 
 module RabbitMQ
   module Adapters
@@ -24,6 +25,9 @@ module RabbitMQ
       end
 
       def ping
+        reason = tls_failure_reason
+        return [502, "ERR:TLS verification failed: #{reason}"] if reason
+
         # Computed here, in adapter scope, and captured as locals below -
         # not called as connect_frame/frame_type from inside the :open
         # handler. event_emitter's #emit (the gem's dispatch mechanism)
@@ -66,9 +70,7 @@ module RabbitMQ
           # socket, live thread looping a read with nobody to stop it -
           # unreachable, since the assignment would never run. The block
           # runs before any of that I/O, so it always gets a handle.
-          ::WebSocket::Client::Simple.connect(
-            url, headers: { 'Sec-WebSocket-Protocol' => subprotocol }
-          ) do |client|
+          ::WebSocket::Client::Simple.connect(url, connect_options) do |client|
             socket = client
             client.on(:open) { client.send(outgoing, type: outgoing_type) }
             client.on(:message) { |msg| frame = msg.data }
@@ -100,6 +102,30 @@ module RabbitMQ
       end
 
       private
+
+      # websocket-client-simple builds its own SSLContext and only sets a
+      # verify_mode if the caller passes one - so without this the adapter
+      # completed a wss handshake against any certificate at all, and
+      # /web-mqtt-tls/ping answered 200 OK against a broker holding a
+      # certificate from a CA in no trust store. The gem always seeds its
+      # store from OpenSSL's default paths, so verify_mode is the only
+      # thing missing here; the CA itself is supplied the usual way, via
+      # SSL_CERT_FILE.
+      def connect_options
+        options = { headers: { 'Sec-WebSocket-Protocol' => subprotocol } }
+        options[:verify_mode] = RabbitMQ::TLS.verify_mode(endpoint) if endpoint.tls
+        options
+      end
+
+      # The gem's verify_mode covers the chain but not the name on the
+      # certificate (it has no hook for post_connection_check), so the
+      # identity check happens first, on a connection this app opens
+      # itself. See RabbitMQ::TLS.verify_endpoint for what that costs.
+      def tls_failure_reason
+        return nil unless endpoint.verify_peer?
+
+        RabbitMQ::TLS.verify_endpoint(endpoint)
+      end
 
       def browser_only(_name)
         [501, 'NOT-SUPPORTED: no Ruby client speaks this protocol over ' \

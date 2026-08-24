@@ -221,3 +221,77 @@ RSpec.describe 'websocket adapters' do
     end
   end
 end
+
+RSpec.describe 'websocket adapters over TLS' do
+  def tls_endpoint(verify_peer)
+    RabbitMQ::Endpoint.new(
+      protocol: 'web_mqtt_tls', host: 'broker.example', port: 15676, tls: true,
+      username: 'demo-vhost:app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: verify_peer
+    )
+  end
+
+  let(:plaintext) do
+    RabbitMQ::Endpoint.new(
+      protocol: 'web_mqtt', host: 'broker.example', port: 15675, tls: false,
+      username: 'demo-vhost:app-user', password: 'p', vhost: 'demo-vhost',
+      source: :derived, verify_peer: true
+    )
+  end
+
+  # Before this the gem's own SSLContext carried no verify_mode, so the
+  # handshake succeeded against any certificate: measured at 200 OK from
+  # /web-mqtt-tls/ping against a broker whose CA was in no trust store.
+  it 'asks the gem to verify the chain by default' do
+    adapter = RabbitMQ::Adapters::WebMQTT.new(tls_endpoint(true))
+    expect(adapter.send(:connect_options)[:verify_mode])
+      .to eq(OpenSSL::SSL::VERIFY_PEER)
+  end
+
+  it 'asks the gem to skip verification when the operator opted out' do
+    adapter = RabbitMQ::Adapters::WebMQTT.new(tls_endpoint(false))
+    expect(adapter.send(:connect_options)[:verify_mode])
+      .to eq(OpenSSL::SSL::VERIFY_NONE)
+  end
+
+  it 'sends no verify_mode at all for a plaintext endpoint' do
+    adapter = RabbitMQ::Adapters::WebMQTT.new(plaintext)
+    expect(adapter.send(:connect_options)).not_to have_key(:verify_mode)
+  end
+
+  it 'still negotiates the subprotocol alongside the TLS options' do
+    adapter = RabbitMQ::Adapters::WebMQTT.new(tls_endpoint(true))
+    expect(adapter.send(:connect_options)[:headers])
+      .to eq('Sec-WebSocket-Protocol' => 'mqtt')
+  end
+
+  describe '#ping' do
+    # The gem verifies the chain but never the name on the certificate,
+    # so a certificate issued to a different host entirely still completed
+    # a wss handshake. That check happens before the socket is opened.
+    it 'reports 502 naming the reason when the certificate does not verify' do
+      allow(RabbitMQ::TLS).to receive(:verify_endpoint)
+        .and_return('hostname "broker.example" does not match')
+      expect(::WebSocket::Client::Simple).not_to receive(:connect)
+
+      code, body = RabbitMQ::Adapters::WebMQTT.new(tls_endpoint(true)).ping
+
+      expect(code).to eq(502)
+      expect(body).to include('hostname "broker.example" does not match')
+    end
+
+    it 'does not preflight at all when the operator opted out of verification' do
+      expect(RabbitMQ::TLS).not_to receive(:verify_endpoint)
+      allow(::WebSocket::Client::Simple).to receive(:connect).and_raise(Timeout::Error)
+
+      RabbitMQ::Adapters::WebMQTT.new(tls_endpoint(false)).ping
+    end
+
+    it 'does not preflight a plaintext endpoint' do
+      expect(RabbitMQ::TLS).not_to receive(:verify_endpoint)
+      allow(::WebSocket::Client::Simple).to receive(:connect).and_raise(Timeout::Error)
+
+      RabbitMQ::Adapters::WebMQTT.new(plaintext).ping
+    end
+  end
+end
