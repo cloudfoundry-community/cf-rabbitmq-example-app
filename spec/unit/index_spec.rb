@@ -45,15 +45,20 @@ RSpec.describe 'root index' do
     expect(last_response.headers['Set-Cookie'].to_s).not_to include('nonsense')
   end
 
-  it 'does not offer protocols that have no registered adapter' do
+  it 'does not offer a protocol that resolves but has no registered adapter' do
+    # Every protocol in Resolver::PROTOCOLS now has a registered adapter,
+    # so the gate (`available && adapter` in views/index.erb) is exercised
+    # here via a stub rather than a real gap in the registry.
+    allow(RabbitMQ::Registry).to receive(:adapter_for).with('mqtt').and_return(nil)
     get '/'
-    expect(last_response.body).not_to match(/name="protocol"[^>]*value="web_mqtt"/)
+    expect(last_response.body).not_to match(/name="protocol"[^>]*value="mqtt"/)
   end
 
-  it 'offers mqtt and stomp now that they resolve and have a registered adapter' do
+  it 'offers mqtt, stomp and web_mqtt now that they resolve and have a registered adapter' do
     get '/'
     expect(last_response.body).to match(/name="protocol"[^>]*value="mqtt"/)
     expect(last_response.body).to match(/name="protocol"[^>]*value="stomp"/)
+    expect(last_response.body).to match(/name="protocol"[^>]*value="web_mqtt"/)
   end
 
   it 'does offer protocols that resolve and have an adapter' do
