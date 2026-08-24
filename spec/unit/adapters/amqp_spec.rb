@@ -66,3 +66,53 @@ RSpec.describe RabbitMQ::Adapters::AMQP do
     end
   end
 end
+
+RSpec.describe RabbitMQ::Adapters::AMQP, 'when the connection fails' do
+  let(:endpoint) do
+    RabbitMQ::Endpoint.new(
+      protocol: 'amqps', host: 'broker.example', port: 5671, tls: true,
+      username: 'u', password: 'p', vhost: 'v', source: :advertised,
+      verify_peer: true
+    )
+  end
+
+  let(:connection) { instance_double(Bunny::Session) }
+
+  before { allow(Bunny).to receive(:new).and_return(connection) }
+
+  # Bunny says exactly the right thing about a bad certificate
+  # ("certificate verify failed (self-signed certificate in certificate
+  # chain)", or "hostname ... does not match the server certificate") -
+  # and the operator never saw either. Closing a connection that never
+  # opened makes Bunny write a Close frame down a dead socket, and that
+  # exception, raised from `ensure`, replaced the real one: the two cases
+  # above surfaced as "ERR:SSL_write" and "ERR:Timeout::Error".
+  it 'reports the real failure, not whatever closing the dead socket raises' do
+    allow(connection).to receive(:start)
+      .and_raise(OpenSSL::SSL::SSLError.new('certificate verify failed'))
+    allow(connection).to receive(:close).and_raise(OpenSSL::SSL::SSLError.new('SSL_write'))
+
+    expect { described_class.new(endpoint).ping }
+      .to raise_error(OpenSSL::SSL::SSLError, /certificate verify failed/)
+  end
+
+  it 'still returns the result when only the close fails' do
+    channel = instance_double(Bunny::Channel)
+    allow(connection).to receive(:start)
+    allow(connection).to receive(:create_channel).and_return(channel)
+    allow(connection).to receive(:close).and_raise(IOError, 'closed stream')
+
+    expect(described_class.new(endpoint).ping).to eq([200, 'OK'])
+  end
+
+  it 'still closes the connection on the happy path' do
+    channel = instance_double(Bunny::Channel)
+    allow(connection).to receive(:start)
+    allow(connection).to receive(:create_channel).and_return(channel)
+    allow(connection).to receive(:close)
+
+    described_class.new(endpoint).ping
+
+    expect(connection).to have_received(:close).once
+  end
+end
