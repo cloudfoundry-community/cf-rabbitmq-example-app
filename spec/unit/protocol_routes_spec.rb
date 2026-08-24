@@ -79,6 +79,10 @@ RSpec.describe 'protocol-prefixed routes' do
     # so this path is exercised via a stub rather than a real gap in the
     # registry - it still covers the halt(501) branch in the `adapter`
     # helper for whichever protocol a future registry omission affects.
+    # This route only ever calls adapter_for('mqtt'), so the with()
+    # constraint alone is sound today, but a default keeps it that way
+    # if a future before-filter starts touching the registry too.
+    allow(RabbitMQ::Registry).to receive(:adapter_for).and_call_original
     allow(RabbitMQ::Registry).to receive(:adapter_for).with('mqtt').and_return(nil)
     get '/mqtt/ping'
     expect(last_response.status).to eq(501)
