@@ -96,6 +96,12 @@ RSpec.describe 'protocol-prefixed routes' do
   end
 
   it 'registers the hyphenated segment, not the underscored protocol key' do
+    # web_mqtt now has a real adapter, and its #ping is a genuine network
+    # handshake - stub it out so this stays a route-registration test,
+    # not an accidental network call against the fixture's made-up host.
+    web_mqtt = instance_double(RabbitMQ::Adapters::WebMQTT, ping: [200, 'OK'])
+    allow(RabbitMQ::Adapters::WebMQTT).to receive(:new).and_return(web_mqtt)
+
     get '/web_mqtt/ping'
     expect(last_response.status).to eq(404)
     get '/web-mqtt/ping'
