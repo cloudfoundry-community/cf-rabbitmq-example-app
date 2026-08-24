@@ -75,6 +75,11 @@ RSpec.describe 'protocol-prefixed routes' do
   end
 
   it 'returns 501 when a protocol is resolvable but has no registered adapter' do
+    # Every protocol in Resolver::PROTOCOLS now has a registered adapter,
+    # so this path is exercised via a stub rather than a real gap in the
+    # registry - it still covers the halt(501) branch in the `adapter`
+    # helper for whichever protocol a future registry omission affects.
+    allow(RabbitMQ::Registry).to receive(:adapter_for).with('mqtt').and_return(nil)
     get '/mqtt/ping'
     expect(last_response.status).to eq(501)
     expect(last_response.body).to match(/NOT-SUPPORTED/)
