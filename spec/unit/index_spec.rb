@@ -30,6 +30,9 @@ RSpec.describe 'root index' do
 
   it 'never renders the password' do
     get '/'
+    # Pinned: without it a 500 body ("ERR:...") contains no 'app-pass'
+    # either, so a broken route would satisfy the assertion.
+    expect(last_response.status).to eq(200)
     expect(last_response.body).not_to include('app-pass')
   end
 
