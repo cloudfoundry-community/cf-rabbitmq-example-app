@@ -61,6 +61,23 @@ RSpec.describe 'protocols against a live broker', :integration do
       expect(last_response.body).to eq('OK')
     end
 
+    # Before the CONNECT guard, this returned 200 OK against a broker that
+    # had refused the login outright - the app certified a binding that did
+    # not work. The ping example above cannot catch that: it passes either
+    # way, which is exactly why this one exists.
+    it 'refuses to report OK when the broker rejects the credentials' do
+      bad = JSON.parse(integration_vcap)
+      creds = bad['rabbitmq'][0]['credentials']
+      creds['password'] = 'wrong-password'
+      creds['protocols']['amqp']['password'] = 'wrong-password'
+      ENV['VCAP_SERVICES'] = bad.to_json
+
+      get '/stomp/ping'
+
+      expect(last_response.status).to eq(502)
+      expect(last_response.body).to include('CONNECT refused')
+    end
+
     it 'round-trips a message' do
       name = itest_queue('stomp')
 
