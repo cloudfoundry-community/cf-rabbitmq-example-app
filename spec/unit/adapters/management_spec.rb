@@ -60,4 +60,57 @@ RSpec.describe RabbitMQ::Adapters::Management do
       expect(api.consume('q')).to eq([501, 'NOT-SUPPORTED: consume over management'])
     end
   end
+
+  describe 'upstream error handling' do
+    it 'raises ManagementError with the status and reason on a 401' do
+      stub_request(:get, 'http://broker.example:15672/api/overview')
+        .to_return(status: 401,
+                   body: '{"error":"not_authorised","reason":"Login failed"}',
+                   headers: { 'Content-Type' => 'application/json' })
+
+      expect { api.overview }.to raise_error(RabbitMQ::Adapters::ManagementError) do |error|
+        expect(error.status).to eq(401)
+        expect(error.detail).to include('Login failed')
+      end
+    end
+
+    it 'raises ManagementError with the body text on a non-JSON 503' do
+      stub_request(:get, 'http://broker.example:15672/api/overview')
+        .to_return(status: 503, body: 'Service Unavailable', headers: { 'Content-Type' => 'text/plain' })
+
+      expect { api.overview }.to raise_error(RabbitMQ::Adapters::ManagementError) do |error|
+        expect(error.status).to eq(503)
+        expect(error.detail).to include('Service Unavailable')
+      end
+    end
+
+    it 'raises ManagementError, not JSON::ParserError, on a 200 with an HTML body' do
+      stub_request(:get, 'http://broker.example:15672/api/overview')
+        .to_return(status: 200, body: '<html><body>welcome</body></html>',
+                   headers: { 'Content-Type' => 'text/html' })
+
+      expect { api.overview }.to raise_error(RabbitMQ::Adapters::ManagementError) do |error|
+        expect(error.status).to eq(200)
+      end
+    end
+
+    it 'truncates a long detail so an HTML blob cannot reach the response' do
+      long_body = "<html>#{'x' * 500}</html>"
+      stub_request(:get, 'http://broker.example:15672/api/overview')
+        .to_return(status: 502, body: long_body, headers: { 'Content-Type' => 'text/html' })
+
+      expect { api.overview }.to raise_error(RabbitMQ::Adapters::ManagementError) do |error|
+        expect(error.detail.length).to be <= (RabbitMQ::Adapters::ManagementError::DETAIL_LIMIT + 3)
+        expect(error.detail).to end_with('...')
+        expect(error.message).to end_with('...')
+      end
+    end
+
+    it 'still returns nil on 404, never raising ManagementError' do
+      stub_request(:get, 'http://broker.example:15672/api/queues/demo-vhost/nope')
+        .to_return(status: 404, body: '{"error":"Object Not Found"}')
+
+      expect(api.queue('nope')).to be_nil
+    end
+  end
 end
