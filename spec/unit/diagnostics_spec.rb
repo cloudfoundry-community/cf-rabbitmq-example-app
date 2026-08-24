@@ -40,6 +40,9 @@ RSpec.describe 'GET /protocols' do
 
   it 'never includes the password' do
     get '/protocols'
+    # Pinned: without it a 500 body ("ERR:...") contains no 'app-pass'
+    # either, so a broken route would satisfy the assertion.
+    expect(last_response.status).to eq(200)
     expect(last_response.body).not_to include('app-pass')
   end
 end
