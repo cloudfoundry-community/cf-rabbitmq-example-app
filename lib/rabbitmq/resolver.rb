@@ -69,13 +69,29 @@ module RabbitMQ
       block = @binding.protocol(name)
       return nil unless block
 
+      host = block['host'] || default_host
+      port = block['port'] || DEFAULT_PORTS[name]
+      return nil unless host && port
+
       build(
         name,
-        host: block['host'] || default_host,
-        port: block['port'] || DEFAULT_PORTS[name],
-        tls: block.fetch('ssl', TLS_PROTOCOLS.include?(name)),
+        host: host,
+        port: port,
+        tls: advertised_tls?(name, block),
         source: :advertised
       )
+    end
+
+    # An explicit "ssl" flag is coerced through the same strict boolean
+    # parsing as RABBITMQ_VERIFY_PEER, never trusted verbatim - a broker
+    # that hands back the JSON string "false" must not be treated as
+    # truthy. A missing (or explicitly null) flag falls back to what the
+    # protocol name implies.
+    def advertised_tls?(name, block)
+      raw = block['ssl']
+      return TLS_PROTOCOLS.include?(name) if raw.nil?
+
+      strict_bool!(raw, 'ssl')
     end
 
     def derived(name)
@@ -83,18 +99,29 @@ module RabbitMQ
       return nil unless port
       return nil unless default_host
 
-      build(name, host: default_host, port: port, tls: derived_tls?(name), source: :derived)
+      tls = derived_tls?(name)
+      return nil if tls.nil?
+
+      build(name, host: default_host, port: port, tls: tls, source: :derived)
     end
 
     # For the AMQP pair the top-level uri scheme is authoritative when
-    # protocols is absent. For everything else the protocol name decides.
+    # protocols is absent. The pair's default port is fixed to the
+    # requested protocol name, so a uri whose scheme disagrees with the
+    # requested name (an "amqp" request against an amqps:// uri, or vice
+    # versa) cannot be derived without pairing the wrong TLS-ness with the
+    # wrong port - nil says "not derivable" rather than emitting a
+    # mismatched endpoint. For everything else the protocol name decides.
     def derived_tls?(name)
       return TLS_PROTOCOLS.include?(name) unless %w[amqp amqps].include?(name)
 
       uri = credentials['uri'] || Array(credentials['uris']).first
       return TLS_PROTOCOLS.include?(name) unless uri
 
-      uri.start_with?('amqps://')
+      uri_tls = uri.start_with?('amqps://')
+      return nil unless uri_tls == (name == 'amqps')
+
+      uri_tls
     end
 
     def build(name, host:, port:, tls:, source:)
@@ -134,12 +161,22 @@ module RabbitMQ
       raw = @env['RABBITMQ_VERIFY_PEER']
       return true if raw.nil? || raw.empty?
 
-      case raw.downcase
+      strict_bool!(raw, 'RABBITMQ_VERIFY_PEER')
+    end
+
+    # Shared strict boolean coercion for RABBITMQ_VERIFY_PEER and the
+    # advertised "ssl" flag: only true/false/1/0 (or those strings,
+    # case-insensitively) are accepted. Never guesses at an arbitrary
+    # string's truthiness.
+    def strict_bool!(raw, label)
+      return raw if raw == true || raw == false
+
+      case raw.to_s.downcase
       when 'true', '1' then true
       when 'false', '0' then false
       else
         raise ArgumentError,
-              "RABBITMQ_VERIFY_PEER must be one of true, false, 1, 0 - got #{raw.inspect}"
+              "#{label} must be one of true, false, 1, 0 - got #{raw.inspect}"
       end
     end
   end
