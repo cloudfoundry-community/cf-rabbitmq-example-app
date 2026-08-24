@@ -82,12 +82,41 @@ module RabbitMQ
         end
       end
 
+      # Any topic works here - it exists purely to force a round trip; see
+      # #declare. Named distinctly so it can never collide with a queue
+      # name a caller creates. Nothing ever subscribes to it, so RabbitMQ's
+      # default topic-exchange routing just drops it - no queue, no
+      # storage, no cleanup needed.
+      FLUSH_TOPIC = 'cfrmq-subscribe-flush'.freeze
+
       # A persistent session makes the subscription (and its backing queue)
-      # survive disconnect, which is what makes a later consume possible.
+      # survive disconnect, which is what makes a later consume possible -
+      # but only if the broker has actually processed the SUBSCRIBE before
+      # this connection closes. ruby-mqtt's Client#subscribe is
+      # fire-and-forget: it writes the SUBSCRIBE packet and returns
+      # immediately, and Client#handle_packet (mqtt-0.7.0/lib/mqtt/client.rb)
+      # explicitly ignores every SUBACK it receives - "Ignore all other
+      # packets" - so there is no API in this gem to wait for subscribe
+      # confirmation. Disconnecting right after #subscribe raced the
+      # broker's own processing of it often enough to lose the very next
+      # publish: reproduced directly against this method, 0/15 recoveries
+      # with the broker's-eye-view of declare and publish back-to-back,
+      # zero gap.
+      #
+      # The gem's one real acknowledgment primitive is a QoS-1 PUBACK,
+      # which does block for a full broker round trip (#publish's qos>0
+      # branch), and a broker necessarily processes packets on one
+      # connection in order - so waiting for PUBACK on this same
+      # connection, right after subscribing, guarantees the SUBSCRIBE was
+      # already processed first. Verified against a real broker: 15/15
+      # recoveries with this flush in place, same zero gap, both with the
+      # client_id shared across declare/publish/consume (unchanged) and
+      # with it varied - the id was never the cause.
       def declare(name)
         with_strategy do
           ::MQTT::Client.connect(**connection_options(name)) do |client|
             client.subscribe(name => 1)
+            client.publish(FLUSH_TOPIC, '', false, 1)
           end
           [201, 'SUCCESS']
         end

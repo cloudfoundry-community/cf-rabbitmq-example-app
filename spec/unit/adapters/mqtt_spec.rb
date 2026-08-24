@@ -67,6 +67,37 @@ RSpec.describe RabbitMQ::Adapters::MQTT do
     expect(body).to match(/per-request cannot see a prior subscribe/)
   end
 
+  describe '#declare' do
+    # ruby-mqtt's Client#subscribe is fire-and-forget - it never waits for
+    # a SUBACK, and Client#handle_packet (mqtt-0.7.0) explicitly ignores
+    # every one it receives. Disconnecting right after #subscribe used to
+    # race the broker's own processing of it, losing the very next
+    # publish (reproduced against a real broker: 0/15 recoveries with no
+    # gap). A QoS-1 publish genuinely blocks for a broker round trip, and
+    # a broker processes packets on one connection in order, so flushing
+    # with one after subscribing - before disconnecting - guarantees the
+    # SUBSCRIBE was already processed. This is the one thing a unit spec
+    # can prove about the fix; that it actually rescues the message is
+    # spec/integration/mqtt_concurrency_spec.rb's job, against a real
+    # broker.
+    it 'subscribes, then flushes with a QoS-1 publish before disconnecting' do
+      client = instance_double(::MQTT::Client, subscribe: nil, publish: nil)
+      allow(::MQTT::Client).to receive(:connect).and_yield(client)
+
+      code, body = described_class.new(endpoint).declare('some-queue')
+
+      expect(client).to have_received(:subscribe).with('some-queue' => 1).ordered
+      expect(client).to have_received(:publish)
+        .with(described_class::FLUSH_TOPIC, '', false, 1).ordered
+      expect(code).to eq(201)
+      expect(body).to eq('SUCCESS')
+    end
+
+    it 'flushes on a topic distinct from any queue name a caller could declare' do
+      expect(described_class::FLUSH_TOPIC).not_to eq('some-queue')
+    end
+  end
+
   describe 'the MQTT wire format limit' do
     # ruby-mqtt raises "Client identifier too long" above 23 bytes,
     # regardless of protocol version, at serialisation time - a queue

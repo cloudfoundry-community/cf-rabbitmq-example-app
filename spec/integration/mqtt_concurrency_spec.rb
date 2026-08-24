@@ -18,26 +18,17 @@ RSpec.describe 'MQTT concurrency strategies against a live broker', :integration
 
   before { ENV['VCAP_SERVICES'] = integration_vcap }
 
-  # Skipped, not pending: declare and publish each reconnect under the
-  # same client_id (serialized strategy). Fired back-to-back with no gap
-  # - exactly what this spec, and a Rack::Test-driven request in general,
-  # does - the broker loses the self-published message *probabilistically*:
-  # reproduced directly against the adapter (no Sinatra, no HTTP) with
-  # 0/8 consume attempts (16s of retrying) recovering the message when
-  # declare and publish had no gap between them, versus 4/4 succeeding
-  # immediately with as little as a 50ms gap inserted between declare and
-  # publish specifically - retrying the later consume step does not help,
-  # since the loss already happens before it runs. Because the margin is
-  # only tens of milliseconds, incidental Sinatra/Rack::Test overhead
-  # sometimes crosses it and sometimes doesn't - `pending` would itself
-  # flip between "fails as expected" and "unexpectedly passed" run to
-  # run, which is the same nondeterminism the task's own caution warns
-  # against, just relocated. `skip` is the one outcome that can't flake.
-  # See the report ("MQTT subscribe/publish reconnect race") for the full
-  # reproduction. Out of scope to fix here - lib/rabbitmq/adapters/mqtt.rb
-  # is not part of this task's Code Organization.
-  it 'serialized supports subscribe (declare) then consume finding the same session',
-     skip: 'declare/publish reconnect race drops the message probabilistically - see report' do
+  # Previously skipped: declare and publish each reconnect under the same
+  # client_id (serialized strategy), fired back-to-back with no gap, and
+  # the broker used to lose the self-published message probabilistically
+  # (0/15 recoveries with no gap). Root cause was ruby-mqtt's
+  # Client#subscribe being fire-and-forget with no SUBACK wait at all -
+  # #declare disconnected before the broker had necessarily finished
+  # processing the SUBSCRIBE. Fixed in RabbitMQ::Adapters::MQTT#declare
+  # by forcing a real round trip (a QoS-1 publish to a throwaway topic,
+  # acknowledged via PUBACK) before disconnecting. Verified against a
+  # real broker: 20/20 recoveries with zero gap, post-fix.
+  it 'serialized supports subscribe (declare) then consume finding the same session' do
     name = itest_queue('mqtt-serialized')
 
     post '/mqtt/queues', name: name, mqtt: 'serialized'
