@@ -23,6 +23,37 @@ RSpec.describe RabbitMQ::Binding do
       expect(binding.credentials['username']).to eq('app-user')
       expect(binding.credentials['vhost']).to eq('0de041e6-91ba-4f55-b50f-d575ce91e2a5')
     end
+
+    it 'does not mutate a uris array when both uris and uri are present' do
+      original_uris = ['amqp://app-user:app-pass@10.7.16.17:5672']
+      raw = {
+        'rabbitmq' => [
+          {
+            'credentials' => {
+              'uri' => 'amqp://app-user:app-pass@10.7.16.17:5672',
+              'uris' => original_uris
+            }
+          }
+        ]
+      }
+      env = { 'VCAP_SERVICES' => raw.to_json }
+      binding = described_class.from_env(env)
+      expect(binding.bound?).to be(true)
+      expect(binding.credentials['uris']).to eq(['amqp://app-user:app-pass@10.7.16.17:5672'])
+      expect(binding.credentials['uris'].length).to eq(1)
+    end
+
+    it 'is unbound without raising when VCAP_SERVICES is the JSON literal null' do
+      expect(described_class.from_env({ 'VCAP_SERVICES' => 'null' }).bound?).to be(false)
+    end
+
+    it 'is unbound without raising when VCAP_SERVICES is a JSON array' do
+      expect(described_class.from_env({ 'VCAP_SERVICES' => '[]' }).bound?).to be(false)
+    end
+
+    it 'is unbound without raising when VCAP_SERVICES is a JSON number' do
+      expect(described_class.from_env({ 'VCAP_SERVICES' => '123' }).bound?).to be(false)
+    end
   end
 
   describe '#protocol' do
