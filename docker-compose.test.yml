@@ -1,0 +1,55 @@
+# Broker(s) for `spec/integration`. Ruby runs natively via rbenv (Ruby
+# 3.3.11) - there is no app service here.
+#
+# Image: rabbitmq:3.13-management
+#   digest sha256:e582c0bc7766f3342496d8485efb5a1df782b5ce3886ad017e2eaae442311f69
+#   Last confirmed reporting itself as RabbitMQ 3.13.7, Erlang 26.2.5.6.
+#   If a run fails here, check whether the tag has moved to a newer patch
+#   before suspecting the app.
+services:
+  # Full listener set: amqp, management, mqtt, stomp, web-mqtt, web-stomp,
+  # and the consistent-hash exchange type.
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "1883:1883"
+      - "61613:61613"
+      - "15674:15674"
+      - "15675:15675"
+    environment:
+      RABBITMQ_DEFAULT_USER: app-user
+      RABBITMQ_DEFAULT_PASS: app-pass
+      RABBITMQ_DEFAULT_VHOST: demo-vhost
+    command: >
+      bash -c "rabbitmq-plugins enable --offline
+      rabbitmq_management rabbitmq_mqtt rabbitmq_stomp
+      rabbitmq_web_mqtt rabbitmq_web_stomp
+      rabbitmq_consistent_hash_exchange &&
+      rabbitmq-server"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  # Deliberately missing rabbitmq_consistent_hash_exchange (management
+  # ships enabled by the base image; nothing else is turned on). Exists
+  # solely so spec/integration/exchange_type_spec.rb can observe what
+  # Bunny actually raises for an unknown exchange type against a real
+  # broker (amendment 2) without disabling the plugin on the primary
+  # broker the rest of the suite depends on.
+  rabbitmq-no-chx:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: app-user
+      RABBITMQ_DEFAULT_PASS: app-pass
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
