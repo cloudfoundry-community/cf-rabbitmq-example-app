@@ -11,6 +11,7 @@ require 'json'
 # the contract holds regardless of how the process was started.
 set :raise_errors, false
 set :show_exceptions, false
+set :views, File.expand_path('../views', __dir__)
 
 $LOAD_PATH.unshift(__dir__) unless $LOAD_PATH.include?(__dir__)
 
@@ -96,7 +97,15 @@ helpers do
   end
 end
 
+# The index explains what the binding does and does not support, so it
+# has to be reachable (and the select routes it posts to) even when
+# nothing is bound - that is precisely when an operator needs it most.
+# Every other route keeps the unbound 500.
+UNBOUND_ALLOWED = ['/', '/select', '/select-mqtt'].freeze
+
 before do
+  next if UNBOUND_ALLOWED.include?(request.path_info)
+
   halt 500, BIND_INSTRUCTIONS unless service_binding.bound?
 end
 
@@ -143,6 +152,7 @@ require 'routes/legacy'
 require 'routes/protocol'
 require 'routes/management'
 require 'routes/diagnostics'
+require 'routes/index'
 
 error RabbitMQ::Adapters::QueueNotFound do
   halt 404, 'NO-SUCH-QUEUE'
