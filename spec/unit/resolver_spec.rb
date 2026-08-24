@@ -8,6 +8,12 @@ RSpec.describe RabbitMQ::Resolver do
     described_class.new(binding, env)
   end
 
+  def resolver_with_credentials(credentials, env = {})
+    vcap = JSON.generate('rabbitmq' => [{ 'label' => 'rabbitmq', 'credentials' => credentials }])
+    binding = RabbitMQ::Binding.from_env({ 'VCAP_SERVICES' => vcap })
+    described_class.new(binding, env)
+  end
+
   describe 'advertised endpoints' do
     it 'uses the advertised amqp block verbatim' do
       endpoint = resolver_for('tls_off').resolve('amqp')
@@ -55,6 +61,20 @@ RSpec.describe RabbitMQ::Resolver do
       expect(endpoint.port).to eq(5672)
       expect(endpoint.tls).to be(false)
       expect(endpoint.source).to eq(:derived)
+    end
+
+    it 'refuses to derive amqp when the uri is amqps, rather than mixing them' do
+      resolver = resolver_for('tls_on')
+      expect(resolver.resolve('amqp')).to be_nil
+      expect(resolver.unavailable_reason('amqp'))
+        .to match(/amqp is not advertised in the binding and could not be derived/)
+    end
+
+    it 'refuses to derive amqps when the uri is amqp, rather than mixing them' do
+      resolver = resolver_for('tls_off')
+      expect(resolver.resolve('amqps')).to be_nil
+      expect(resolver.unavailable_reason('amqps'))
+        .to match(/amqps is not advertised in the binding and could not be derived/)
     end
   end
 
@@ -104,6 +124,83 @@ RSpec.describe RabbitMQ::Resolver do
 
     it 'does not prefix the username for amqp' do
       expect(resolver_for('tls_off').resolve('amqp').username).to eq('app-user')
+    end
+  end
+
+  describe 'advertised block validation' do
+    it 'falls through when the advertised block has no port and none can be derived' do
+      resolver = resolver_with_credentials(
+        'host' => '10.7.16.17',
+        'username' => 'app-user',
+        'password' => 'app-pass',
+        'vhost' => '0de041e6-91ba-4f55-b50f-d575ce91e2a5',
+        'protocols' => {
+          'web_stomp_tls' => {
+            'username' => 'app-user',
+            'password' => 'app-pass',
+            'host' => '10.7.16.17',
+            'ssl' => true
+          }
+        }
+      )
+
+      expect(resolver.resolve('web_stomp_tls')).to be_nil
+      expect(resolver.unavailable_reason('web_stomp_tls'))
+        .to match(/no documented default port/)
+    end
+
+    it 'falls through when neither the block nor the top level has a host' do
+      resolver = resolver_with_credentials(
+        'username' => 'app-user',
+        'password' => 'app-pass',
+        'vhost' => '0de041e6-91ba-4f55-b50f-d575ce91e2a5',
+        'protocols' => {
+          'amqp' => {
+            'username' => 'app-user',
+            'password' => 'app-pass',
+            'port' => 5672,
+            'ssl' => false
+          }
+        }
+      )
+
+      expect(resolver.resolve('amqp')).to be_nil
+      expect(resolver.unavailable_reason('amqp'))
+        .to match(/amqp is not advertised in the binding and could not be derived/)
+    end
+
+    it 'coerces a string "ssl" flag to a real boolean rather than trusting it' do
+      resolver = resolver_with_credentials(
+        'host' => '10.7.16.17',
+        'username' => 'app-user',
+        'password' => 'app-pass',
+        'vhost' => '0de041e6-91ba-4f55-b50f-d575ce91e2a5',
+        'protocols' => {
+          'amqp' => {
+            'username' => 'app-user',
+            'password' => 'app-pass',
+            'host' => '10.7.16.17',
+            'port' => 5672,
+            'ssl' => 'false'
+          }
+        }
+      )
+
+      expect(resolver.resolve('amqp').tls).to be(false)
+    end
+  end
+
+  describe 'endpoint serialization safety' do
+    it 'never leaks the password through to_h, to_json, to_s, or inspect' do
+      endpoint = resolver_for('tls_off').resolve('amqp')
+      password = endpoint.password
+
+      expect(endpoint.to_h.to_json).not_to include(password)
+      expect(endpoint.to_json).not_to include(password)
+      expect(JSON.generate(endpoint)).not_to include(password)
+      expect(JSON.generate('e' => endpoint)).not_to include(password)
+      expect(endpoint.to_s).not_to include(password)
+      expect(endpoint.inspect).not_to include(password)
     end
   end
 end
