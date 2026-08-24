@@ -42,9 +42,21 @@ module RabbitMQ
           # emit :open) immediately, before that call even returns - a
           # handler attached afterwards, on the returned client, can race
           # and miss it.
-          socket = ::WebSocket::Client::Simple.connect(
+          #
+          # `socket` is captured from the block argument, not from
+          # Simple.connect's return value: the module method only returns
+          # once Client#connect finishes, and Client#connect can raise
+          # Timeout::Error from inside itself (TLS handshake, or the
+          # blocking handshake write) after it has already opened the
+          # TCPSocket/SSLSocket and spawned the reader thread. Capturing
+          # the return value would leave that half-built client - live
+          # socket, live thread looping a read with nobody to stop it -
+          # unreachable, since the assignment would never run. The block
+          # runs before any of that I/O, so it always gets a handle.
+          ::WebSocket::Client::Simple.connect(
             url, headers: { 'Sec-WebSocket-Protocol' => subprotocol }
           ) do |client|
+            socket = client
             client.on(:open) { client.send(connect_frame, type: frame_type) }
             client.on(:message) { |msg| frame = msg.data }
             client.on(:error) { |e| error = e }
