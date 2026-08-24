@@ -1,3 +1,8 @@
+# Sinatra falls back to :development when neither is set, which turns on
+# show_exceptions and this app's request logging - the former would mask
+# the app's own error handling under test. Set before 'sinatra' loads.
+ENV['RACK_ENV'] ||= 'test'
+
 require 'rack/test'
 require 'json'
 require 'webmock/rspec'
