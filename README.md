@@ -349,9 +349,10 @@ the other end.
 
 The `stomp` gem verifies only when handed a trust store through
 `Stomp::SSLParams(:ts_files)`, and that code path guards each file with
-`File::exists?` — removed from the Ruby this app runs on, so it raises
-`NoMethodError` before a socket is opened. 1.4.10 is the newest
-release, so there is no version to move to.
+`File::exists?` — not present on the Ruby this app runs on, so it
+raises `NoMethodError` before a socket is opened. 1.4.10 is the newest
+release, so there is no version to move to; reported upstream as
+[stompgem/stomp#176](https://github.com/stompgem/stomp/issues/176).
 
 `stomps` therefore verifies the endpoint on a connection this app opens
 itself, immediately before handing off to the gem. That catches the
@@ -383,9 +384,17 @@ port 15674  http/web-stomp    <- plaintext, still open
 
 So "TLS only" turns off plaintext AMQP and leaves four protocols
 carrying credentials in the clear, with no TLS port to move them to.
-`spec/support/rabbitmq-tls.conf` shows the four lines that fix it
+`spec/support/rabbitmq-tls.conf` shows the lines that fix it
 (`mqtt.listeners.ssl.default`, `stomp.listeners.ssl.default`,
-`web_mqtt.ssl.*`, `web_stomp.ssl.*`).
+`web_mqtt.ssl.*`, `web_stomp.ssl.*`). Reported as
+[rabbitmq-forge-boshrelease#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99).
+
+The kit side has its own gap: the Blacksmith kit's OCFP feature hook is
+meant to add `rabbitmq-tls` automatically, but only sees features listed
+*before* `ocfp`, so with the conventional ordering it adds nothing —
+[blacksmith-genesis-kit#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87).
+Until that lands, list `rabbitmq-dual-mode` explicitly in the
+environment file.
 
 ## `instances: 1`
 
