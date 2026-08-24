@@ -49,12 +49,18 @@ module RabbitMQ
       end
 
       # ruby-mqtt enforces MQTT 3.1's 23-byte client identifier limit at
-      # serialisation time regardless of protocol version - it raises
-      # rather than truncating. "cf-rabbitmq-example-app-" alone is
-      # already 25 bytes, so the prefix has to be short by construction,
-      # and a queue name (unbounded, caller-supplied) can never be
-      # concatenated in directly - it is hashed to a fixed-length token
-      # instead.
+      # serialisation time only when the packet's protocol version is
+      # '3.1.0' - MQTT::Client (used throughout this file) defaults to
+      # '3.1.1' and passes that version through, so MQTT::Client.connect
+      # here was never actually at risk. The limit is honoured anyway,
+      # defensively: a caller could still request 3.1.0, and
+      # RabbitMQ::Adapters::WebMQTT#connect_frame builds a
+      # MQTT::Packet::Connect directly (no MQTT::Client involved), which
+      # inherits Packet::ATTR_DEFAULTS' 3.1.0 default and genuinely does
+      # raise above 23 bytes. "cf-rabbitmq-example-app-" alone is already
+      # 25 bytes, so the prefix has to be short by construction, and a
+      # queue name (unbounded, caller-supplied) can never be concatenated
+      # in directly - it is hashed to a fixed-length token instead.
       APP_ID = 'cfrmq'
 
       # RabbitMQ evicts the older connection on a duplicate client_id, so
