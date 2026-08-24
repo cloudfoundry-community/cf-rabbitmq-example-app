@@ -1,0 +1,17 @@
+{
+  "rabbitmq": [
+    {
+      "label": "rabbitmq",
+      "name": "rmqsmall",
+      "plan": "standalone",
+      "tags": ["blacksmith", "dedicated", "rabbitmq"],
+      "credentials": {
+        "host": "10.7.16.17",
+        "username": "app-user",
+        "password": "app-pass",
+        "vhost": "0de041e6-91ba-4f55-b50f-d575ce91e2a5",
+        "uri": "amqp://app-user:app-pass@10.7.16.17:5672"
+      }
+    }
+  ]
+}
