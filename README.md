@@ -463,13 +463,38 @@ certificate that verifies, are refused against one from an untrusted
 CA, are refused against one naming a different host, and connect again
 under `RABBITMQ_VERIFY_PEER=false`. See [TLS](#tls).
 
-**Still not covered:** TLS against a *Blacksmith-provisioned* instance.
-The instance verified above ran `RabbitMQ TLS: Disabled` — the
-Blacksmith kit's `rabbitmq-tls` feature has to be listed explicitly in
-the environment file, since the OCFP feature hook that is supposed to
-add it does not reach the blueprint. Browser execution of the two demo
-pages is also unverified — CI proves the vendored JS is served, not
-that it runs.
+**TLS against a live Blacksmith instance:** verified end to end on Cloud
+Foundry — `rabbitmq-forge` 1.5.1 (plus the four fixes below), RabbitMQ
+4.2.8, TLS in dual mode, all twelve listeners up on the instance
+(1883/5671/5672/8883/15671–15676/61613/61614).
+
+- `/protocols` reports **four** advertised protocols with TLS on — `amqp`,
+  `amqps`, `management`, `management_tls` — and derives `mqtts`, `stomps`
+  and `web_mqtt_tls` on their standard TLS ports. `web_stomp_tls` stays
+  unavailable, as designed.
+- With the binding's private CA **untrusted**, all five reachable TLS
+  protocols refuse the broker and name the reason. Four of the five
+  returned `200 OK` here before `lib/rabbitmq/tls.rb` existed.
+- With the CA supplied through `SSL_CERT_FILE`, all five ping and
+  `amqps`, `stomps` and `mqtts` each round-trip a message.
+- `/demo/consistent-hash` distributed 12 messages across 3 queues over
+  **AMQPS** — `fallback_protocol` picks `amqps` when no plaintext `amqp`
+  is resolvable.
+- No credential appeared in any response body.
+
+**Six upstream fixes were needed to get there**, each filed with a PR:
+
+| what | where |
+|---|---|
+| bpm colocated in every plan, so the default plan can start | forge [#97](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/97) / [#98](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/98) |
+| TLS listeners for mqtt, stomp and the two WebSocket plugins | forge [#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99) / [#100](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/100) |
+| `meta.cf` emitted when `route_registrar` is on, so the plan renders | forge [#101](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/101) / [#103](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/103) |
+| `api_url` pointed at a management listener the broker can reach | forge [#102](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/102) / [#104](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/104) |
+| ocfp sub-features (`rabbitmq-tls`) no longer dropped by list order | kit [#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87) / [#88](https://github.com/genesis-community/blacksmith-genesis-kit/pull/88) |
+| `stomp` gem able to load a trust store at all | [stompgem/stomp#176](https://github.com/stompgem/stomp/issues/176) / [#177](https://github.com/stompgem/stomp/pull/177) |
+
+**Still not covered:** browser execution of the two demo pages — CI proves
+the vendored JS is served, not that it runs.
 
 **Operator note:** application security groups must allow egress from
 the app to the service network on the protocol ports. A default CF
