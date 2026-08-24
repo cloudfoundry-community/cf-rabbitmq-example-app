@@ -100,7 +100,49 @@ before do
   halt 500, BIND_INSTRUCTIONS unless service_binding.bound?
 end
 
+# Shared by lib/routes/legacy.rb (bare routes, whose protocol is chosen
+# per request via selected_protocol) and lib/routes/protocol.rb (protocol
+# fixed by the URL prefix). This is a plain top-level method, not a
+# Sinatra helper: it calls the route DSL (get/post/put) itself, and that
+# DSL only resolves from top-level scope, not from inside a helpers block.
+#
+# protocol_for is a block, not a value, and is run per request with
+# instance_exec instead of being called once here. Calling it eagerly
+# and interpolating the result would freeze whichever protocol was
+# selected on the very first request into every route body forever -
+# selected_protocol has to be re-evaluated on every call.
+def define_protocol_routes(prefix, &protocol_for)
+  get "#{prefix}/ping" do
+    relay(adapter(instance_exec(&protocol_for)).ping)
+  end
+
+  get "#{prefix}/queues" do
+    status 200
+    body management.queue_names.map { |q| "#{q}\n" }.join
+  end
+
+  post "#{prefix}/queues" do
+    halt 400, 'NO-NAME' unless params[:name]
+    halt 304, 'EXISTS' if management.queue_exists?(params[:name])
+
+    relay(adapter(instance_exec(&protocol_for)).declare(params[:name]))
+  end
+
+  put "#{prefix}/queue/:name" do
+    halt 400, 'NO-DATA' unless params[:data]
+
+    relay(adapter(instance_exec(&protocol_for)).publish(params[:name], params[:data]))
+  end
+
+  get "#{prefix}/queue/:name" do
+    relay(adapter(instance_exec(&protocol_for)).consume(params[:name]))
+  end
+end
+
 require 'routes/legacy'
+require 'routes/protocol'
+require 'routes/management'
+require 'routes/diagnostics'
 
 error RabbitMQ::Adapters::QueueNotFound do
   halt 404, 'NO-SUCH-QUEUE'
