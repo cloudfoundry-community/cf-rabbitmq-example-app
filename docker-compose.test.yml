@@ -28,11 +28,16 @@ services:
       rabbitmq_web_mqtt rabbitmq_web_stomp
       rabbitmq_consistent_hash_exchange &&
       rabbitmq-server"
+    # check_port_connectivity, not ping: ping only proves the node process is
+    # up and registered with EPMD, which it is several seconds before any
+    # listener accepts a connection. `up --wait` gating on ping let the suite
+    # start against brokers that then reset every connection.
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 5s
       timeout: 10s
       retries: 20
+      start_period: 30s
 
   # Deliberately missing rabbitmq_consistent_hash_exchange (management
   # ships enabled by the base image; nothing else is turned on). Exists
@@ -49,10 +54,11 @@ services:
       RABBITMQ_DEFAULT_USER: app-user
       RABBITMQ_DEFAULT_PASS: app-pass
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 5s
       timeout: 10s
       retries: 20
+      start_period: 30s
 
   # TLS for every protocol, on the standard TLS ports (5671, 15671, 8883,
   # 61614, 15676) plus 15679 for web-stomp. A separate broker rather than
@@ -85,10 +91,11 @@ services:
       rabbitmq_web_mqtt rabbitmq_web_stomp &&
       rabbitmq-server"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 5s
       timeout: 10s
       retries: 30
+      start_period: 30s
 
   # Same certificate authority as rabbitmq-tls, but the certificate names
   # wrong.example.invalid. Exists so spec/integration/tls_spec.rb can tell
@@ -112,7 +119,8 @@ services:
       rabbitmq_web_mqtt rabbitmq_web_stomp &&
       rabbitmq-server"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 5s
       timeout: 10s
       retries: 30
+      start_period: 30s
