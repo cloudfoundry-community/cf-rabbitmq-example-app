@@ -387,14 +387,18 @@ carrying credentials in the clear, with no TLS port to move them to.
 `spec/support/rabbitmq-tls.conf` shows the lines that fix it
 (`mqtt.listeners.ssl.default`, `stomp.listeners.ssl.default`,
 `web_mqtt.ssl.*`, `web_stomp.ssl.*`). Reported as
-[rabbitmq-forge-boshrelease#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99).
+[rabbitmq-forge-boshrelease#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99)
+and fixed by [#100](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/100),
+merged 2026-08-28. **No forge release carries it yet** — v1.5.1 is the
+newest, so a deployment on a released forge still has this gap.
 
 The kit side has its own gap: the Blacksmith kit's OCFP feature hook is
 meant to add `rabbitmq-tls` automatically, but only sees features listed
 *before* `ocfp`, so with the conventional ordering it adds nothing —
-[blacksmith-genesis-kit#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87).
-Until that lands, list `rabbitmq-dual-mode` explicitly in the
-environment file.
+[blacksmith-genesis-kit#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87),
+fixed by [#88](https://github.com/genesis-community/blacksmith-genesis-kit/pull/88)
+and merged 2026-08-25. Until a kit release carries it, list
+`rabbitmq-dual-mode` explicitly in the environment file.
 
 ## `instances: 1`
 
@@ -484,14 +488,18 @@ Foundry — `rabbitmq-forge` 1.5.1 (plus the four fixes below), RabbitMQ
 
 **Six upstream fixes were needed to get there**, each filed with a PR:
 
-| what | where |
-|---|---|
-| bpm colocated in every plan, so the default plan can start | forge [#97](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/97) / [#98](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/98) |
-| TLS listeners for mqtt, stomp and the two WebSocket plugins | forge [#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99) / [#100](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/100) |
-| `meta.cf` emitted when `route_registrar` is on, so the plan renders | forge [#101](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/101) / [#103](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/103) |
-| `api_url` pointed at a management listener the broker can reach | forge [#102](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/102) / [#104](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/104) |
-| ocfp sub-features (`rabbitmq-tls`) no longer dropped by list order | kit [#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87) / [#88](https://github.com/genesis-community/blacksmith-genesis-kit/pull/88) |
-| `stomp` gem able to load a trust store at all | [stompgem/stomp#176](https://github.com/stompgem/stomp/issues/176) / [#177](https://github.com/stompgem/stomp/pull/177) |
+| what | where | state |
+|---|---|---|
+| bpm colocated in every plan, so the default plan can start | forge [#97](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/97) / [#98](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/98) | merged, unreleased |
+| TLS listeners for mqtt, stomp and the two WebSocket plugins | forge [#99](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/99) / [#100](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/100) | merged, unreleased |
+| `meta.cf` emitted when `route_registrar` is on, so the plan renders | forge [#101](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/101) / [#103](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/103) | merged, unreleased |
+| `api_url` pointed at a management listener the broker can reach | forge [#102](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/issues/102) / [#104](https://github.com/blacksmith-community/rabbitmq-forge-boshrelease/pull/104) | merged, unreleased |
+| ocfp sub-features (`rabbitmq-tls`) no longer dropped by list order | kit [#87](https://github.com/genesis-community/blacksmith-genesis-kit/issues/87) / [#88](https://github.com/genesis-community/blacksmith-genesis-kit/pull/88) | merged, unreleased |
+| `stomp` gem able to load a trust store at all | [stompgem/stomp#176](https://github.com/stompgem/stomp/issues/176) / [#177](https://github.com/stompgem/stomp/pull/177) | open |
+
+The four forge fixes and the kit fix are merged to their default branches
+but not in any release — forge's newest is v1.5.1 (2026-07-22). Until a
+release carries them, a foundation needs a forge built from `master`.
 
 **Still not covered:** browser execution of the two demo pages — CI proves
 the vendored JS is served, not that it runs.
